@@ -201,11 +201,21 @@ struct ContentView: View {
                 .frame(maxHeight: 160)
             }
 
-            Button(action: { vm.logout() }) {
-                Text("Log Out")
-                    .font(.caption)
+            HStack(spacing: 16) {
+                Button(action: { vm.logout() }) {
+                    Text("Log Out")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { NSApplication.shared.terminate(nil) }) {
+                    Text("Quit")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("q")
             }
-            .buttonStyle(.plain)
             .padding(.bottom, 6)
         }
         .frame(width: 300)

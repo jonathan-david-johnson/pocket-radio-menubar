@@ -10,3 +10,7 @@ import Foundation
 enum Constants {
     static let streamURL = URL(string: "https://streams.kcrw.com/e24_mp3")
 }
+
+extension Notification.Name {
+    static let pocketRadioNowPlayingChanged = Notification.Name("PocketRadioNowPlayingChanged")
+}

@@ -169,7 +169,9 @@ class PlayerViewModel: ObservableObject {
         currentSource = .radio(station)
         nowPlayingTitle = station.name
         nowPlayingSubtitle = "Live Stream"
+        if isPlaying { stopPlayback() }
         startPlayback()
+        notifyNowPlayingChanged()
     }
 
     func playPodcast() {
@@ -177,7 +179,9 @@ class PlayerViewModel: ObservableObject {
         currentSource = .podcast(ep)
         nowPlayingTitle = ep.title
         nowPlayingSubtitle = "Up Next"
+        if isPlaying { stopPlayback() }
         startPlayback()
+        notifyNowPlayingChanged()
     }
 
     // MARK: - Playback
@@ -226,11 +230,17 @@ class PlayerViewModel: ObservableObject {
         audioPlayer.replaceCurrentItem(with: playerItem)
         audioPlayer.play()
         isPlaying = true
+        notifyNowPlayingChanged()
     }
 
     private func stopPlayback() {
         print("🎵 PocketRadio: Stopping playback")
         audioPlayer.replaceCurrentItem(with: nil)
         isPlaying = false
+        notifyNowPlayingChanged()
+    }
+
+    private func notifyNowPlayingChanged() {
+        NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
     }
 }
