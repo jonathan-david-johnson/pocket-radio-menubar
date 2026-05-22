@@ -165,6 +165,200 @@ enum PocketCastsAPI {
     }
 }
 
+// MARK: - Up Next Episode Model
+
+struct UpNextEpisode {
+    let uuid: String
+    let title: String
+    let url: String
+    let podcastUUID: String
+}
+
+// MARK: - Up Next API
+
+extension PocketCastsAPI {
+    private static let upNextPath = "/up_next/sync"
+
+    /// Fetch the user's Up Next queue. Returns episodes in order (first = currently playing or top of queue).
+    static func fetchUpNext(token: String) async throws -> [UpNextEpisode] {
+        guard let url = URL(string: apiBase + upNextPath) else {
+            throw LoginError.unknown
+        }
+
+        let deviceID = getOrCreateDeviceID()
+        let body = encodeUpNextRequest(deviceID: deviceID)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw LoginError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LoginError.badResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200:
+            return decodeUpNextResponse(data)
+        case 401:
+            throw LoginError.invalidCredentials
+        default:
+            throw LoginError.badResponse
+        }
+    }
+
+    // MARK: Device ID
+
+    private static func getOrCreateDeviceID() -> String {
+        let key = "pocketradio-device-id"
+        if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
+            return existing
+        }
+        let newID = UUID().uuidString
+        UserDefaults.standard.set(newID, forKey: key)
+        return newID
+    }
+
+    // MARK: Encode Up Next Request
+
+    /// Encode Api_UpNextSyncRequest:
+    ///   field 1: deviceTime (int64 varint, wire type 0)
+    ///   field 2: version = "2.0" (string, wire type 2)
+    ///   field 6: deviceID (string, wire type 2)
+    private static func encodeUpNextRequest(deviceID: String) -> Data {
+        let millis = Int64(Date().timeIntervalSince1970 * 1000)
+        return encodeVarintField(1, millis)
+             + encodeField(2, "2")
+             + encodeField(6, deviceID)
+    }
+
+    // MARK: Decode Up Next Response
+
+    /// Decode Api_UpNextResponse:
+    ///   field 1: serverModified (int64) — skip
+    ///   field 4: episodes (repeated EpisodeResponse, length-delimited)
+    ///
+    /// Each EpisodeResponse:
+    ///   field 1: title (string)
+    ///   field 2: url (string)
+    ///   field 3: podcast (string)
+    ///   field 4: uuid (string)
+    ///   field 5: published (Timestamp sub-message) — skip
+    private static func decodeUpNextResponse(_ data: Data) -> [UpNextEpisode] {
+        var episodes: [UpNextEpisode] = []
+        var offset = 0
+
+        while offset < data.count {
+            guard offset < data.count else { break }
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            switch (fieldNumber, wireType) {
+            case (4, 2):
+                // EpisodeResponse sub-message
+                let (length, varintBytes) = decodeVarint(data, offset: offset)
+                offset += varintBytes
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                if let episode = decodeEpisodeResponse(Data(subData)) {
+                    episodes.append(episode)
+                }
+                offset += length
+
+            case (1, 0):
+                // serverModified varint — skip
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+
+            default:
+                // Unknown field — skip it
+                if wireType == 0 {
+                    let (_, vb) = decodeVarint(data, offset: offset)
+                    offset += vb
+                } else if wireType == 2 {
+                    let (length, vb) = decodeVarint(data, offset: offset)
+                    offset += vb + length
+                } else {
+                    break  // can't skip, bail
+                }
+            }
+        }
+
+        return episodes
+    }
+
+    private static func decodeEpisodeResponse(_ data: Data) -> UpNextEpisode? {
+        var title = "", url = "", podcast = "", uuid = ""
+        var offset = 0
+
+        while offset < data.count {
+            guard offset < data.count else { break }
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                guard offset + length <= data.count else { break }
+                let str = String(data: data[offset..<offset + length], encoding: .utf8) ?? ""
+                offset += length
+
+                switch fieldNumber {
+                case 1: title = str
+                case 2: url = str
+                case 3: podcast = str
+                case 4: uuid = str
+                default: break
+                }
+            } else if wireType == 0 {
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+            } else {
+                break
+            }
+        }
+
+        guard !uuid.isEmpty else { return nil }
+        return UpNextEpisode(uuid: uuid, title: title, url: url, podcastUUID: podcast)
+    }
+}
+
+// MARK: - Int64 Varint Helpers
+
+/// Encode a varint field (wire type 0) for an Int64 value.
+/// Returns: tag byte + varint-encoded value bytes.
+private func encodeVarintField(_ fieldNumber: Int, _ value: Int64) -> Data {
+    let tag = UInt8((fieldNumber << 3) | 0)  // wire type 0 = varint
+    return Data([tag]) + encodeVarint64(value)
+}
+
+/// Encode an Int64 as an unsigned varint.
+private func encodeVarint64(_ value: Int64) -> Data {
+    var v = UInt64(bitPattern: value)
+    var result = Data()
+    repeat {
+        var byte = UInt8(v & 0x7F)
+        v >>= 7
+        if v != 0 { byte |= 0x80 }
+        result.append(byte)
+    } while v != 0
+    return result
+}
+
 // MARK: - Keychain Manager
 
 enum KeychainManager {

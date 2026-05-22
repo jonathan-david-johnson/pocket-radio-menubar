@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  PocketRadio Menubar
 //
-//  M2: Login form OR player view, toggled by auth state.
+//  M3: Login form OR player with up-next episode display.
 //
 
 import SwiftUI
@@ -86,7 +86,7 @@ struct ContentView: View {
     // MARK: - Player View
 
     var playerView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Text("PocketRadio")
                 .font(.headline)
                 .padding(.top, 12)
@@ -95,24 +95,50 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            Text("KCRW Eclectic 24")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            // Now playing info
+            if vm.isLoadingUpNext {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .padding(.vertical, 4)
+            } else {
+                Text(vm.nowPlayingTitle)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: 260)
 
-            Button(action: {
-                vm.togglePlayback()
-            }) {
-                HStack(spacing: 8) {
-                    Image(
-                        systemName: vm.isPlaying
-                            ? "stop.fill" : "play.fill"
-                    )
-                    Text(vm.isPlaying ? "Stop" : "Play")
-                }
-                .frame(width: 120)
+                Text(vm.nowPlayingSubtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+
+            // Controls
+            HStack(spacing: 12) {
+                Button(action: {
+                    vm.togglePlayback()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(
+                            systemName: vm.isPlaying
+                                ? "stop.fill" : "play.fill"
+                        )
+                        Text(vm.isPlaying ? "Stop" : "Play")
+                    }
+                    .frame(width: 100)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button(action: {
+                    Task { await vm.fetchUpNext() }
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .disabled(vm.isLoadingUpNext)
+            }
 
             Button(action: {
                 vm.logout()
