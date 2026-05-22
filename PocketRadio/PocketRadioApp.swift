@@ -37,7 +37,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
 
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 120)
+        popover.contentSize = NSSize(width: 300, height: 250)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(
             rootView: ContentView(vm: self.playerVM)
