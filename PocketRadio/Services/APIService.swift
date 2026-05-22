@@ -167,7 +167,7 @@ enum PocketCastsAPI {
 
 // MARK: - Up Next Episode Model
 
-struct UpNextEpisode {
+struct UpNextEpisode: Equatable {
     let uuid: String
     let title: String
     let url: String
@@ -334,6 +334,124 @@ extension PocketCastsAPI {
 
         guard !uuid.isEmpty else { return nil }
         return UpNextEpisode(uuid: uuid, title: title, url: url, podcastUUID: podcast)
+    }
+}
+
+// MARK: - Radio Station Model
+
+struct RadioStation: Identifiable, Equatable {
+    let id: String       // station UUID from radio-browser.info
+    let name: String
+    let streamURL: String
+    let logoURL: String?
+
+    static func == (lhs: RadioStation, rhs: RadioStation) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+// MARK: - Radio Favorites API
+
+extension PocketCastsAPI {
+    private static let supabaseURL = "https://brvtspdculqyvdrmdtef.supabase.co"
+    private static let supabaseAnonKey = "sb_publishable_1MRvFzvB6O7f2zDPfs2nkA_p18FSLUF"
+    private static let radioBrowserBase = "https://de1.api.radio-browser.info/json"
+
+    /// Fetch the user's favorite radio stations from Supabase, then look up
+    /// station metadata (name, stream URL, logo) from radio-browser.info.
+    static func fetchFavoriteStations(userId: String) async throws -> [RadioStation] {
+        // Step 1: Get favorite station IDs from Supabase
+        let stationIDs = try await fetchFavoriteIDs(userId: userId)
+        guard !stationIDs.isEmpty else { return [] }
+
+        // Step 2: Look up each station on radio-browser.info (parallel)
+        let stations = await withTaskGroup(of: RadioStation?.self) { group in
+            for id in stationIDs {
+                group.addTask {
+                    try? await lookupStation(uuid: id)
+                }
+            }
+
+            var results: [RadioStation] = []
+            for await station in group {
+                if let station = station {
+                    results.append(station)
+                }
+            }
+            return results
+        }
+
+        return stations.sorted { $0.name < $1.name }
+    }
+
+    // MARK: Supabase
+
+    private static func fetchFavoriteIDs(userId: String) async throws -> [String] {
+        guard let url = URL(string: "\(supabaseURL)/rest/v1/radio_favorites?select=station_id") else {
+            throw LoginError.unknown
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue(userId, forHTTPHeaderField: "x-user-uuid")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw LoginError.badResponse
+        }
+
+        // Supabase returns JSON array: [{station_id: "uuid"}, ...]
+        struct FavoritesRow: Decodable {
+            let stationId: String
+            enum CodingKeys: String, CodingKey {
+                case stationId = "station_id"
+            }
+        }
+
+        let rows = try JSONDecoder().decode([FavoritesRow].self, from: data)
+        return rows.map { $0.stationId }
+    }
+
+    // MARK: Radio Browser
+
+    private static func lookupStation(uuid: String) async throws -> RadioStation? {
+        guard let url = URL(string: "\(radioBrowserBase)/stations/byuuid/\(uuid)") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return nil
+        }
+
+        // radio-browser returns an array of stations (usually 1)
+        struct StationResponse: Decodable {
+            let name: String?
+            let url: String?
+            let favicon: String?
+        }
+
+        let stations = try JSONDecoder().decode([StationResponse].self, from: data)
+        guard let station = stations.first,
+              let name = station.name,
+              let streamURL = station.url else {
+            return nil
+        }
+
+        return RadioStation(
+            id: uuid,
+            name: name,
+            streamURL: streamURL,
+            logoURL: station.favicon
+        )
     }
 }
 
