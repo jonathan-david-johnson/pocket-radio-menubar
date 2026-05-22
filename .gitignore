@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.xcarchive
+
+# Backup folders
+**/KCRW*
+**/*2026-*
+
+# Secrets (in case any get added later)
+*.xcconfig
+!*.sample.xcconfig

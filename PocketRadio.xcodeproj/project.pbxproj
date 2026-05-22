@@ -1,0 +1,661 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2DB46C822F294A1B00DEA46A /* Station.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB46C812F294A1B00DEA46A /* Station.swift */; };
+		8C1FEAF628ECA8E1006BF71C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF528ECA8E1006BF71C /* Assets.xcassets */; };
+		8C1FEAF928ECA8E1006BF71C /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF828ECA8E1006BF71C /* Preview Assets.xcassets */; };
+		8C1FEB0428ECA8E2006BF71C /* PocketRadioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB0328ECA8E2006BF71C /* PocketRadioTests.swift */; };
+		8C1FEB0E28ECA8E2006BF71C /* PocketRadioUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB0D28ECA8E2006BF71C /* PocketRadioUITests.swift */; };
+		8C1FEB1028ECA8E2006BF71C /* PocketRadioUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB0F28ECA8E2006BF71C /* PocketRadioUITestsLaunchTests.swift */; };
+		8C1FEB2028ECB209006BF71C /* PocketRadioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF128ECA8DF006BF71C /* PocketRadioApp.swift */; };
+		8C1FEB2328ECB37F006BF71C /* Song.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2228ECB37F006BF71C /* Song.swift */; };
+		8C1FEB2628ECB3BA006BF71C /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2528ECB3BA006BF71C /* APIService.swift */; };
+		8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */; };
+		8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2B28ECB490006BF71C /* Constants.swift */; };
+		8C1FEB2D28ECB5ED006BF71C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF328ECA8DF006BF71C /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8C1FEB0028ECA8E2006BF71C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8C1FEAE628ECA8DF006BF71C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8C1FEAED28ECA8DF006BF71C;
+			remoteInfo = "PocketRadio";
+		};
+		8C1FEB0A28ECA8E2006BF71C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8C1FEAE628ECA8DF006BF71C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8C1FEAED28ECA8DF006BF71C;
+			remoteInfo = "PocketRadio";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		2DB46C812F294A1B00DEA46A /* Station.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Station.swift; sourceTree = "<group>"; };
+		8C1FEAEE28ECA8DF006BF71C /* PocketRadio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PocketRadio.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C1FEAF128ECA8DF006BF71C /* PocketRadioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRadioApp.swift; sourceTree = "<group>"; };
+		8C1FEAF328ECA8DF006BF71C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		8C1FEAF528ECA8E1006BF71C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8C1FEAF828ECA8E1006BF71C /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		8C1FEAFA28ECA8E1006BF71C /* PocketRadio.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PocketRadio.entitlements; sourceTree = "<group>"; };
+		8C1FEAFF28ECA8E2006BF71C /* PocketRadioTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "PocketRadioTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C1FEB0328ECA8E2006BF71C /* PocketRadioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRadioTests.swift; sourceTree = "<group>"; };
+		8C1FEB0928ECA8E2006BF71C /* PocketRadioUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "PocketRadioUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C1FEB0D28ECA8E2006BF71C /* PocketRadioUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRadioUITests.swift; sourceTree = "<group>"; };
+		8C1FEB0F28ECA8E2006BF71C /* PocketRadioUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRadioUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		8C1FEB2228ECB37F006BF71C /* Song.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Song.swift; sourceTree = "<group>"; };
+		8C1FEB2528ECB3BA006BF71C /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
+		8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
+		8C1FEB2B28ECB490006BF71C /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8C1FEAEB28ECA8DF006BF71C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C1FEAFC28ECA8E2006BF71C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C1FEB0628ECA8E2006BF71C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8C1FEAE528ECA8DF006BF71C = {
+			isa = PBXGroup;
+			children = (
+				8C1FEAF028ECA8DF006BF71C /* PocketRadio */,
+				8C1FEB0228ECA8E2006BF71C /* PocketRadioTests */,
+				8C1FEB0C28ECA8E2006BF71C /* PocketRadioUITests */,
+				8C1FEAEF28ECA8DF006BF71C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8C1FEAEF28ECA8DF006BF71C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEAEE28ECA8DF006BF71C /* PocketRadio.app */,
+				8C1FEAFF28ECA8E2006BF71C /* PocketRadioTests.xctest */,
+				8C1FEB0928ECA8E2006BF71C /* PocketRadioUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8C1FEAF028ECA8DF006BF71C /* PocketRadio */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEB2A28ECB483006BF71C /* Utils */,
+				8C1FEB2728ECB449006BF71C /* View Models */,
+				8C1FEB2428ECB3A9006BF71C /* Services */,
+				8C1FEB2128ECB370006BF71C /* Model */,
+				8C1FEAF128ECA8DF006BF71C /* PocketRadioApp.swift */,
+				8C1FEAF328ECA8DF006BF71C /* ContentView.swift */,
+				8C1FEAF528ECA8E1006BF71C /* Assets.xcassets */,
+				8C1FEAFA28ECA8E1006BF71C /* PocketRadio.entitlements */,
+				8C1FEAF728ECA8E1006BF71C /* Preview Content */,
+			);
+			path = "PocketRadio";
+			sourceTree = "<group>";
+		};
+		8C1FEAF728ECA8E1006BF71C /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEAF828ECA8E1006BF71C /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		8C1FEB0228ECA8E2006BF71C /* PocketRadioTests */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEB0328ECA8E2006BF71C /* PocketRadioTests.swift */,
+			);
+			path = "PocketRadioTests";
+			sourceTree = "<group>";
+		};
+		8C1FEB0C28ECA8E2006BF71C /* PocketRadioUITests */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEB0D28ECA8E2006BF71C /* PocketRadioUITests.swift */,
+				8C1FEB0F28ECA8E2006BF71C /* PocketRadioUITestsLaunchTests.swift */,
+			);
+			path = "PocketRadioUITests";
+			sourceTree = "<group>";
+		};
+		8C1FEB2128ECB370006BF71C /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				2DB46C812F294A1B00DEA46A /* Station.swift */,
+				8C1FEB2228ECB37F006BF71C /* Song.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		8C1FEB2428ECB3A9006BF71C /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEB2528ECB3BA006BF71C /* APIService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		8C1FEB2728ECB449006BF71C /* View Models */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */,
+			);
+			path = "View Models";
+			sourceTree = "<group>";
+		};
+		8C1FEB2A28ECB483006BF71C /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				8C1FEB2B28ECB490006BF71C /* Constants.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8C1FEAED28ECA8DF006BF71C /* PocketRadio */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8C1FEB1328ECA8E2006BF71C /* Build configuration list for PBXNativeTarget "PocketRadio" */;
+			buildPhases = (
+				8C1FEAEA28ECA8DF006BF71C /* Sources */,
+				8C1FEAEB28ECA8DF006BF71C /* Frameworks */,
+				8C1FEAEC28ECA8DF006BF71C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "PocketRadio";
+			packageProductDependencies = (
+			);
+			productName = "PocketRadio";
+			productReference = 8C1FEAEE28ECA8DF006BF71C /* PocketRadio.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8C1FEAFE28ECA8E2006BF71C /* PocketRadioTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8C1FEB1628ECA8E2006BF71C /* Build configuration list for PBXNativeTarget "PocketRadioTests" */;
+			buildPhases = (
+				8C1FEAFB28ECA8E2006BF71C /* Sources */,
+				8C1FEAFC28ECA8E2006BF71C /* Frameworks */,
+				8C1FEAFD28ECA8E2006BF71C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8C1FEB0128ECA8E2006BF71C /* PBXTargetDependency */,
+			);
+			name = "PocketRadioTests";
+			productName = "PocketRadioTests";
+			productReference = 8C1FEAFF28ECA8E2006BF71C /* PocketRadioTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8C1FEB0828ECA8E2006BF71C /* PocketRadioUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8C1FEB1928ECA8E2006BF71C /* Build configuration list for PBXNativeTarget "PocketRadioUITests" */;
+			buildPhases = (
+				8C1FEB0528ECA8E2006BF71C /* Sources */,
+				8C1FEB0628ECA8E2006BF71C /* Frameworks */,
+				8C1FEB0728ECA8E2006BF71C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8C1FEB0B28ECA8E2006BF71C /* PBXTargetDependency */,
+			);
+			name = "PocketRadioUITests";
+			productName = "PocketRadioUITests";
+			productReference = 8C1FEB0928ECA8E2006BF71C /* PocketRadioUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8C1FEAE628ECA8DF006BF71C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1400;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					8C1FEAED28ECA8DF006BF71C = {
+						CreatedOnToolsVersion = 14.0.1;
+					};
+					8C1FEAFE28ECA8E2006BF71C = {
+						CreatedOnToolsVersion = 14.0.1;
+						TestTargetID = 8C1FEAED28ECA8DF006BF71C;
+					};
+					8C1FEB0828ECA8E2006BF71C = {
+						CreatedOnToolsVersion = 14.0.1;
+						TestTargetID = 8C1FEAED28ECA8DF006BF71C;
+					};
+				};
+			};
+			buildConfigurationList = 8C1FEAE928ECA8DF006BF71C /* Build configuration list for PBXProject "PocketRadio" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8C1FEAE528ECA8DF006BF71C;
+			packageReferences = (
+			);
+			productRefGroup = 8C1FEAEF28ECA8DF006BF71C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8C1FEAED28ECA8DF006BF71C /* PocketRadio */,
+				8C1FEAFE28ECA8E2006BF71C /* PocketRadioTests */,
+				8C1FEB0828ECA8E2006BF71C /* PocketRadioUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8C1FEAEC28ECA8DF006BF71C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C1FEAF928ECA8E1006BF71C /* Preview Assets.xcassets in Resources */,
+				8C1FEAF628ECA8E1006BF71C /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C1FEAFD28ECA8E2006BF71C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C1FEB0728ECA8E2006BF71C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8C1FEAEA28ECA8DF006BF71C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C1FEB2028ECB209006BF71C /* PocketRadioApp.swift in Sources */,
+				8C1FEB2628ECB3BA006BF71C /* APIService.swift in Sources */,
+				8C1FEB2D28ECB5ED006BF71C /* ContentView.swift in Sources */,
+				8C1FEB2328ECB37F006BF71C /* Song.swift in Sources */,
+				2DB46C822F294A1B00DEA46A /* Station.swift in Sources */,
+				8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */,
+				8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C1FEAFB28ECA8E2006BF71C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C1FEB0428ECA8E2006BF71C /* PocketRadioTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C1FEB0528ECA8E2006BF71C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C1FEB0E28ECA8E2006BF71C /* PocketRadioUITests.swift in Sources */,
+				8C1FEB1028ECA8E2006BF71C /* PocketRadioUITestsLaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8C1FEB0128ECA8E2006BF71C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8C1FEAED28ECA8DF006BF71C /* PocketRadio */;
+			targetProxy = 8C1FEB0028ECA8E2006BF71C /* PBXContainerItemProxy */;
+		};
+		8C1FEB0B28ECA8E2006BF71C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8C1FEAED28ECA8DF006BF71C /* PocketRadio */;
+			targetProxy = 8C1FEB0A28ECA8E2006BF71C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8C1FEB1128ECA8E2006BF71C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = X6DVXL53Z3;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				NEW_SETTING = "";
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		8C1FEB1228ECA8E2006BF71C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = X6DVXL53Z3;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				NEW_SETTING = "";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		8C1FEB1428ECA8E2006BF71C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "PocketRadio";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "PocketRadio/PocketRadio.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_ASSET_PATHS = "\"PocketRadio/Preview Content\"";
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradio";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8C1FEB1528ECA8E2006BF71C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "PocketRadio/PocketRadio.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_ASSET_PATHS = "\"PocketRadio/Preview Content\"";
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradio";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8C1FEB1728ECA8E2006BF71C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradioTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PocketRadio.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PocketRadio";
+			};
+			name = Debug;
+		};
+		8C1FEB1828ECA8E2006BF71C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradioTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PocketRadio.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PocketRadio";
+			};
+			name = Release;
+		};
+		8C1FEB1A28ECA8E2006BF71C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradioUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "PocketRadio";
+			};
+			name = Debug;
+		};
+		8C1FEB1B28ECA8E2006BF71C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradioUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "PocketRadio";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8C1FEAE928ECA8DF006BF71C /* Build configuration list for PBXProject "PocketRadio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8C1FEB1128ECA8E2006BF71C /* Debug */,
+				8C1FEB1228ECA8E2006BF71C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8C1FEB1328ECA8E2006BF71C /* Build configuration list for PBXNativeTarget "PocketRadio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8C1FEB1428ECA8E2006BF71C /* Debug */,
+				8C1FEB1528ECA8E2006BF71C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8C1FEB1628ECA8E2006BF71C /* Build configuration list for PBXNativeTarget "PocketRadioTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8C1FEB1728ECA8E2006BF71C /* Debug */,
+				8C1FEB1828ECA8E2006BF71C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8C1FEB1928ECA8E2006BF71C /* Build configuration list for PBXNativeTarget "PocketRadioUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8C1FEB1A28ECA8E2006BF71C /* Debug */,
+				8C1FEB1B28ECA8E2006BF71C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8C1FEAE628ECA8DF006BF71C /* Project object */;
+}
