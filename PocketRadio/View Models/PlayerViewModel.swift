@@ -209,12 +209,15 @@ class PlayerViewModel: ObservableObject {
         let streamURL: URL? = {
             switch currentSource {
             case .podcast(let ep):
-                if let url = URL(string: ep.url) { return url }
+                if let url = URL(string: ep.url) { return upgradeToHTTPS(url) }
                 nowPlayingTitle = "KCRW Eclectic 24"
                 nowPlayingSubtitle = "Fallback Stream"
                 return Constants.streamURL
             case .radio(let station):
-                return URL(string: station.streamURL) ?? Constants.streamURL
+                if let url = URL(string: station.streamURL) {
+                    return upgradeToHTTPS(url)
+                }
+                return Constants.streamURL
             case nil:
                 return Constants.streamURL
             }
@@ -242,5 +245,15 @@ class PlayerViewModel: ObservableObject {
 
     private func notifyNowPlayingChanged() {
         NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
+    }
+
+    /// Upgrade http:// → https:// for App Transport Security compatibility.
+    private func upgradeToHTTPS(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme == "http" else {
+            return url
+        }
+        components.scheme = "https"
+        return components.url ?? url
     }
 }
