@@ -2,28 +2,29 @@
 //  PlayerViewModel.swift
 //  PocketRadio Menubar
 //
-//  M4: AVPlayer + Pocket Casts auth + up-next + radio favorites.
+//  M6.1: Pill-based source selection + duration-aware controls + skip logic.
 //
 
 import Foundation
 import AVFoundation
+import Combine
+
+// MARK: - Pill Type
+
+enum PillType: Equatable {
+    case podcast
+    case stream(Int)  // 0, 1, 2 → Stream 1, Stream 2, Stream 3
+}
+
+// MARK: - Playing Source
 
 enum PlayingSource: Equatable {
     case podcast(UpNextEpisode)
     case radio(RadioStation)
 
-    var title: String {
-        switch self {
-        case .podcast(let ep): return ep.title
-        case .radio(let station): return station.name
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .podcast: return "Up Next"
-        case .radio: return "Live Stream"
-        }
+    var isRadio: Bool {
+        if case .radio = self { return true }
+        return false
     }
 }
 
@@ -34,16 +35,19 @@ class PlayerViewModel: ObservableObject {
     @Published var isLoggedIn: Bool = false
     @Published var userEmail: String = ""
     @Published var loginErrorMessage: String? = nil
-
-    // MARK: - Login Fields
     @Published var loginEmail: String = ""
     @Published var loginPassword: String = ""
 
     private var token: String?
     private var userId: String?
 
+    // MARK: - Pill & Browse State
+    @Published var selectedPill: PillType = .podcast
+    @Published var showBrowseTabs: Bool = false
+
     // MARK: - Up Next
     @Published var topEpisode: UpNextEpisode?
+    @Published var upNextEpisodes: [UpNextEpisode] = []
     @Published var isLoadingUpNext: Bool = false
 
     // MARK: - Radio Favorites
@@ -53,9 +57,16 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Playback
     @Published var isPlaying: Bool = false
     @Published var currentSource: PlayingSource?
-    @Published var nowPlayingTitle: String = "KCRW Eclectic 24"
-    @Published var nowPlayingSubtitle: String = ""
+    @Published var showSkipControls: Bool = true  // ⏪ ⏯️ ⏩ vs ⏯️-only
     var audioPlayer: AVPlayer = AVPlayer()
+    private var durationObserver: AnyCancellable?
+
+    // MARK: - Now Playing Info
+    @Published var nowPlayingTitle: String = ""
+
+    // MARK: - Skip Amounts (hardcoded defaults)
+    let skipBackSeconds: Double = 10
+    let skipForwardSeconds: Double = 45
 
     // MARK: - Init
 
@@ -119,12 +130,15 @@ class PlayerViewModel: ObservableObject {
         userId = nil
         userEmail = ""
         topEpisode = nil
+        upNextEpisodes = []
         favoriteStations = []
         currentSource = nil
+        selectedPill = .podcast
+        showBrowseTabs = false
         isLoggedIn = false
         isPlaying = false
-        nowPlayingTitle = "KCRW Eclectic 24"
-        nowPlayingSubtitle = ""
+        nowPlayingTitle = ""
+        showSkipControls = true
     }
 
     // MARK: - Up Next
@@ -137,12 +151,12 @@ class PlayerViewModel: ObservableObject {
 
         do {
             let episodes = try await PocketCastsAPI.fetchUpNext(token: token)
+            self.upNextEpisodes = episodes
             self.topEpisode = episodes.first
 
             if let ep = episodes.first, currentSource == nil {
                 currentSource = .podcast(ep)
                 nowPlayingTitle = ep.title
-                nowPlayingSubtitle = "Up Next"
             }
         } catch {
             print("🎵 PocketRadio: Failed to fetch up-next: \(error.localizedDescription)")
@@ -165,53 +179,117 @@ class PlayerViewModel: ObservableObject {
         }
     }
 
-    func playStation(_ station: RadioStation) {
+    // MARK: - Pill Actions
+
+    func selectPodcast() {
+        guard selectedPill != .podcast else { return }
+        showBrowseTabs = false
+        selectedPill = .podcast
+
+        if let ep = topEpisode {
+            currentSource = .podcast(ep)
+            nowPlayingTitle = ep.title
+            if isPlaying { stopPlayback() }
+            startPlayback()
+        }
+    }
+
+    func selectStream(_ index: Int) {
+        guard index < favoriteStations.count else { return }
+        let pill = PillType.stream(index)
+        guard selectedPill != pill else {
+            // Already selected — toggle play/stop
+            togglePlayback()
+            return
+        }
+
+        showBrowseTabs = false
+        selectedPill = pill
+        let station = favoriteStations[index]
         currentSource = .radio(station)
         nowPlayingTitle = station.name
-        nowPlayingSubtitle = "Live Stream"
         if isPlaying { stopPlayback() }
         startPlayback()
-        notifyNowPlayingChanged()
     }
 
-    func playPodcast() {
-        guard let ep = topEpisode else { return }
-        currentSource = .podcast(ep)
-        nowPlayingTitle = ep.title
-        nowPlayingSubtitle = "Up Next"
-        if isPlaying { stopPlayback() }
-        startPlayback()
-        notifyNowPlayingChanged()
+    func toggleBrowse() {
+        showBrowseTabs.toggle()
     }
 
-    // MARK: - Playback
+    // MARK: - Playback Controls
 
     func togglePlayback() {
         if isPlaying {
             stopPlayback()
         } else {
-            // If nothing selected, pick podcast first, then fall back
+            // If nothing playing yet, pick default
             if currentSource == nil {
                 if let ep = topEpisode {
                     currentSource = .podcast(ep)
                     nowPlayingTitle = ep.title
-                    nowPlayingSubtitle = "Up Next"
-                } else {
-                    nowPlayingTitle = "KCRW Eclectic 24"
-                    nowPlayingSubtitle = "Fallback Stream"
                 }
             }
             startPlayback()
         }
     }
 
+    func skipBack() {
+        guard !shouldUseMuteControls else { return }
+        let newTime = CMTimeSubtract(
+            audioPlayer.currentTime(),
+            CMTime(seconds: skipBackSeconds, preferredTimescale: 1)
+        )
+        audioPlayer.seek(to: newTime)
+    }
+
+    func skipForward() {
+        guard !shouldUseMuteControls else { return }
+        let newTime = CMTimeAdd(
+            audioPlayer.currentTime(),
+            CMTime(seconds: skipForwardSeconds, preferredTimescale: 1)
+        )
+        audioPlayer.seek(to: newTime)
+    }
+
+    // MARK: - Duration-based Control Detection
+
+    /// Same logic as iOS PlaybackManager.shouldUseMuteControls
+    var shouldUseMuteControls: Bool {
+        guard currentSource?.isRadio == true else { return false }
+        guard let duration = audioPlayer.currentItem?.duration,
+              duration.isValid,
+              !duration.isIndefinite else {
+            // Indefinite or invalid duration → live stream → mute controls
+            return true
+        }
+        // Finite duration → seekable → skip controls
+        return false
+    }
+
+    private func observeDuration() {
+        // Reset to skip controls when starting new playback
+        showSkipControls = true
+
+        // Observe when the current item's duration becomes known
+        durationObserver?.cancel()
+        durationObserver = audioPlayer.publisher(for: \.currentItem?.duration)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateControlState()
+            }
+    }
+
+    private func updateControlState() {
+        showSkipControls = !shouldUseMuteControls
+    }
+
+    // MARK: - Playback Engine
+
     private func startPlayback() {
         let streamURL: URL? = {
             switch currentSource {
             case .podcast(let ep):
                 if let url = URL(string: ep.url) { return upgradeToHTTPS(url) }
-                nowPlayingTitle = "KCRW Eclectic 24"
-                nowPlayingSubtitle = "Fallback Stream"
                 return Constants.streamURL
             case .radio(let station):
                 if let url = URL(string: station.streamURL) {
@@ -233,19 +311,26 @@ class PlayerViewModel: ObservableObject {
         audioPlayer.replaceCurrentItem(with: playerItem)
         audioPlayer.play()
         isPlaying = true
+        observeDuration()
         notifyNowPlayingChanged()
     }
 
     private func stopPlayback() {
         print("🎵 PocketRadio: Stopping playback")
+        durationObserver?.cancel()
         audioPlayer.replaceCurrentItem(with: nil)
         isPlaying = false
+        showSkipControls = true
         notifyNowPlayingChanged()
     }
+
+    // MARK: - Notifications
 
     private func notifyNowPlayingChanged() {
         NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
     }
+
+    // MARK: - Helpers
 
     /// Upgrade http:// → https:// for App Transport Security compatibility.
     private func upgradeToHTTPS(_ url: URL) -> URL {
