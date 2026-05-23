@@ -145,14 +145,16 @@ struct ContentView: View {
 
             Divider()
 
-            // ── Bottom Section (placeholder for M6.2/M6.3/M6.4) ──
+            // ── Bottom Section ──
             if vm.showBrowseTabs {
                 browsePlaceholder
+                Spacer()
+            } else if vm.selectedPill == .podcast {
+                upNextListView
             } else {
                 nowPlayingInfo
+                Spacer()
             }
-
-            Spacer()
 
             // ── Footer ──
             HStack(spacing: 16) {
@@ -217,6 +219,92 @@ struct ContentView: View {
     }
 
     // MARK: - Bottom Section Content
+
+    var upNextListView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Up Next")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+
+            if vm.upNextEpisodes.isEmpty {
+                HStack {
+                    Spacer()
+                    if vm.isLoadingUpNext {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Loading...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("No episodes in Up Next")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 20)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(vm.upNextEpisodes, id: \.uuid) { episode in
+                            episodeRow(episode)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func episodeRow(_ episode: UpNextEpisode) -> some View {
+        let isCurrent: Bool = {
+            if case .podcast(let current) = vm.currentSource, current.uuid == episode.uuid {
+                return true
+            }
+            return false
+        }()
+
+        return VStack(spacing: 0) {
+            Button(action: { vm.selectEpisode(episode) }) {
+                HStack(spacing: 8) {
+                    // Play indicator or spacer
+                    if isCurrent {
+                        Image(systemName: vm.isPlaying ? "play.fill" : "pause.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.accentColor)
+                            .frame(width: 14)
+                    } else {
+                        Color.clear.frame(width: 14)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(episode.title)
+                            .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                            .lineLimit(2)
+                            .foregroundColor(.primary)
+
+                        if !episode.podcastUUID.isEmpty {
+                            Text(episode.podcastUUID)
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(isCurrent ? Color.accentColor.opacity(0.1) : Color.clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+                .padding(.leading, 28)
+        }
+    }
 
     var nowPlayingInfo: some View {
         VStack(spacing: 6) {

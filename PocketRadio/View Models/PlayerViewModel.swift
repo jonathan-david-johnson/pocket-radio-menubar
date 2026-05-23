@@ -212,6 +212,19 @@ class PlayerViewModel: ObservableObject {
         startPlayback()
     }
 
+    func selectEpisode(_ episode: UpNextEpisode) {
+        // Already selected? Toggle play/pause.
+        if case .podcast(let current) = currentSource, current.uuid == episode.uuid {
+            togglePlayback()
+            return
+        }
+
+        currentSource = .podcast(episode)
+        nowPlayingTitle = episode.title
+        if isPlaying { stopPlayback() }
+        startPlayback()
+    }
+
     func toggleBrowse() {
         showBrowseTabs.toggle()
     }
@@ -309,6 +322,14 @@ class PlayerViewModel: ObservableObject {
         print("🎵 PocketRadio: Starting playback — \(url)")
         let playerItem = AVPlayerItem(url: url)
         audioPlayer.replaceCurrentItem(with: playerItem)
+
+        // Seek to saved position for podcast episodes
+        if case .podcast(let ep) = currentSource, ep.playedUpTo > 0 {
+            let seekTime = CMTime(seconds: Double(ep.playedUpTo), preferredTimescale: 1)
+            print("🎵 PocketRadio: Seeking to \(ep.playedUpTo)s")
+            audioPlayer.seek(to: seekTime)
+        }
+
         audioPlayer.play()
         isPlaying = true
         observeDuration()

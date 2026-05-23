@@ -172,6 +172,8 @@ struct UpNextEpisode: Equatable {
     let title: String
     let url: String
     let podcastUUID: String
+    let playedUpTo: Int   // seconds of playback progress (from episodeSync)
+    let duration: Int     // total duration in seconds (from episodeSync)
 }
 
 // MARK: - Up Next API
@@ -247,6 +249,7 @@ extension PocketCastsAPI {
     /// Decode Api_UpNextResponse:
     ///   field 1: serverModified (int64) — skip
     ///   field 4: episodes (repeated EpisodeResponse, length-delimited)
+    ///   field 5: episodeSync (repeated EpisodeSyncResponse, length-delimited)
     ///
     /// Each EpisodeResponse:
     ///   field 1: title (string)
@@ -254,8 +257,14 @@ extension PocketCastsAPI {
     ///   field 3: podcast (string)
     ///   field 4: uuid (string)
     ///   field 5: published (Timestamp sub-message) — skip
+    ///
+    /// Each EpisodeSyncResponse:
+    ///   field 1: uuid (string)
+    ///   field 2: playedUpTo (Int32Value sub-message)
+    ///   field 3: duration (Int32Value sub-message)
     private static func decodeUpNextResponse(_ data: Data) -> [UpNextEpisode] {
         var episodes: [UpNextEpisode] = []
+        var syncData: [String: (playedUpTo: Int, duration: Int)] = [:]
         var offset = 0
 
         while offset < data.count {
@@ -274,6 +283,17 @@ extension PocketCastsAPI {
                 let subData = data[offset..<offset + length]
                 if let episode = decodeEpisodeResponse(Data(subData)) {
                     episodes.append(episode)
+                }
+                offset += length
+
+            case (5, 2):
+                // EpisodeSyncResponse sub-message
+                let (length, varintBytes) = decodeVarint(data, offset: offset)
+                offset += varintBytes
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                if let sync = decodeEpisodeSyncResponse(Data(subData)) {
+                    syncData[sync.uuid] = (sync.playedUpTo, sync.duration)
                 }
                 offset += length
 
@@ -296,7 +316,20 @@ extension PocketCastsAPI {
             }
         }
 
-        return episodes
+        // Merge sync data (playedUpTo, duration) into episodes by UUID
+        return episodes.map { ep in
+            if let sync = syncData[ep.uuid] {
+                return UpNextEpisode(
+                    uuid: ep.uuid,
+                    title: ep.title,
+                    url: ep.url,
+                    podcastUUID: ep.podcastUUID,
+                    playedUpTo: sync.playedUpTo,
+                    duration: sync.duration
+                )
+            }
+            return ep
+        }
     }
 
     private static func decodeEpisodeResponse(_ data: Data) -> UpNextEpisode? {
@@ -333,7 +366,81 @@ extension PocketCastsAPI {
         }
 
         guard !uuid.isEmpty else { return nil }
-        return UpNextEpisode(uuid: uuid, title: title, url: url, podcastUUID: podcast)
+        return UpNextEpisode(uuid: uuid, title: title, url: url, podcastUUID: podcast,
+                             playedUpTo: 0, duration: 0)
+    }
+
+    /// Decode a Google_Protobuf_Int32Value wrapper. Returns the inner int32 value.
+    /// Int32Value { value(1) = int32 varint }
+    private static func decodeInt32Value(_ data: Data) -> Int? {
+        var offset = 0
+        while offset < data.count {
+            guard offset < data.count else { break }
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if fieldNumber == 1 && wireType == 0 {
+                let (value, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                return value
+            } else if wireType == 0 {
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+            } else if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb + length
+            } else {
+                break
+            }
+        }
+        return nil
+    }
+
+    /// Decode Api_UpNextResponse.EpisodeSyncResponse:
+    ///   field 1: uuid (string)
+    ///   field 2: playedUpTo (Int32Value sub-message)
+    ///   field 3: duration (Int32Value sub-message)
+    private static func decodeEpisodeSyncResponse(_ data: Data) -> (uuid: String, playedUpTo: Int, duration: Int)? {
+        var uuid = ""
+        var playedUpTo = 0
+        var duration = 0
+        var offset = 0
+
+        while offset < data.count {
+            guard offset < data.count else { break }
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                offset += length
+
+                switch fieldNumber {
+                case 1:
+                    uuid = String(data: subData, encoding: .utf8) ?? ""
+                case 2:
+                    playedUpTo = decodeInt32Value(Data(subData)) ?? 0
+                case 3:
+                    duration = decodeInt32Value(Data(subData)) ?? 0
+                default: break
+                }
+            } else if wireType == 0 {
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+            } else {
+                break
+            }
+        }
+
+        guard !uuid.isEmpty else { return nil }
+        return (uuid, playedUpTo, duration)
     }
 }
 
