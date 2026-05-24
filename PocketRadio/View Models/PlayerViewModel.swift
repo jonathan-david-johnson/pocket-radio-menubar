@@ -297,33 +297,53 @@ class PlayerViewModel: ObservableObject {
         guard selectedPill != .podcast else { return }
         showBrowseTabs = false
         selectedPill = .podcast
-        stopTracklist()
-
-        if let ep = topEpisode {
-            if isPlaying { stopPlayback() }
-            currentSource = .podcast(ep)
-            nowPlayingTitle = ep.title
-            startPlayback()
-        }
+        // Pill tap is visual only. Existing playback (if any) keeps running on
+        // its own source. Tracklist for the currently-playing stream also
+        // keeps polling so it stays fresh under the hood.
     }
 
     func selectStream(_ index: Int) {
         guard index < favoriteStations.count else { return }
         let pill = PillType.stream(index)
-        guard selectedPill != pill else {
-            // Already selected — toggle play/stop
-            togglePlayback()
-            return
-        }
+        guard selectedPill != pill else { return }
 
         showBrowseTabs = false
         selectedPill = pill
+        // Pill tap = visual selection only. Doesn't stop current playback.
+        // Pre-fetch tracklist so the user can preview airing tracks before
+        // hitting play.
         let station = favoriteStations[index]
-        if isPlaying { stopPlayback() }
-        currentSource = .radio(station)
-        nowPlayingTitle = station.name
-        startPlayback()
         startTracklist(for: station)
+    }
+
+    /// True when the currently-playing source matches what the selected pill
+    /// represents. The play/pause button uses this so it shows "pause" only
+    /// when you're viewing what's playing — otherwise it shows "play"
+    /// (pressing it switches sources to the staged one).
+    var isStagedPlaying: Bool {
+        isPlaying && sourcesMatch(stagedSource, currentSource)
+    }
+
+    /// Source represented by the currently-selected pill, used as the play
+    /// button's target. nil if the pill has no resolvable source yet.
+    private var stagedSource: PlayingSource? {
+        switch selectedPill {
+        case .podcast:
+            if let ep = topEpisode { return .podcast(ep) }
+            return nil
+        case .stream(let i):
+            guard i < favoriteStations.count else { return nil }
+            return .radio(favoriteStations[i])
+        }
+    }
+
+    private func sourcesMatch(_ a: PlayingSource?, _ b: PlayingSource?) -> Bool {
+        switch (a, b) {
+        case (.none, .none): return true
+        case (.podcast(let x), .podcast(let y)): return x.uuid == y.uuid
+        case (.radio(let x), .radio(let y)): return x.id == y.id
+        default: return false
+        }
     }
 
     // MARK: - Tracklist
@@ -727,27 +747,48 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Playback Controls
 
     func togglePlayback() {
+        // Rule: if anything is playing, pause it. Don't switch sources on the
+        // same click. The user has to click again to start the staged source.
         if isPlaying {
-            // Pause without tearing down the AVPlayerItem so resume continues
-            // from the same position. Restarting a non-live mp3 stream (e.g. NPR)
-            // would otherwise rewind to the beginning.
             pausePlayback()
-        } else {
-            if let item = audioPlayer.currentItem, currentSource != nil, item.error == nil {
-                // Resume existing item
-                audioPlayer.play()
-                isPlaying = true
-                notifyNowPlayingChanged()
-                return
+            return
+        }
+
+        let staged = stagedSource
+        let stagedMatchesCurrent = sourcesMatch(staged, currentSource)
+
+        // Resume existing AVPlayerItem when the staged source matches the
+        // last-played one (no rebuffer / no rewind for live mp3 streams).
+        if stagedMatchesCurrent,
+           let item = audioPlayer.currentItem,
+           currentSource != nil,
+           item.error == nil {
+            audioPlayer.play()
+            isPlaying = true
+            notifyNowPlayingChanged()
+            return
+        }
+
+        // Start the staged source fresh (or fall back to topEpisode if nothing
+        // is selectable yet).
+        if let staged = staged {
+            if !sourcesMatch(staged, currentSource) {
+                stopPlayback() // tear down the prior AVPlayerItem
             }
-            // No live item; start fresh
-            if currentSource == nil {
-                if let ep = topEpisode {
-                    currentSource = .podcast(ep)
-                    nowPlayingTitle = ep.title
-                }
-            }
-            startPlayback()
+            currentSource = staged
+            applyNowPlayingTitle(for: staged)
+            if case .radio(let s) = staged { startTracklist(for: s) } else { stopTracklist() }
+        } else if currentSource == nil, let ep = topEpisode {
+            currentSource = .podcast(ep)
+            nowPlayingTitle = ep.title
+        }
+        startPlayback()
+    }
+
+    private func applyNowPlayingTitle(for source: PlayingSource) {
+        switch source {
+        case .podcast(let ep): nowPlayingTitle = ep.title
+        case .radio(let s):    nowPlayingTitle = s.name
         }
     }
 
