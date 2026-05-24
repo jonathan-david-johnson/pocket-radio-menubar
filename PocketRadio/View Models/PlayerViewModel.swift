@@ -61,6 +61,14 @@ class PlayerViewModel: ObservableObject {
     private var tracklistStationId: String?
     private var tracklistRefreshTask: Task<Void, Never>?
 
+    // MARK: - Browse / Favorites panel
+    enum BrowseTab { case favorites, browse }
+    @Published var browseTab: BrowseTab = .favorites
+    @Published var browseQuery: String = ""
+    @Published var browseResults: [RadioStation] = []
+    @Published var isBrowseLoading: Bool = false
+    private var browseSearchTask: Task<Void, Never>?
+
     // MARK: - Playback
     @Published var isPlaying: Bool = false
     @Published var currentSource: PlayingSource?
@@ -228,6 +236,20 @@ class PlayerViewModel: ObservableObject {
 
     // MARK: - Radio Favorites
 
+    private static let favoritesOrderKeyPrefix = "radio_favorites_order_"
+
+    private func favoritesOrderKey(_ userId: String) -> String {
+        Self.favoritesOrderKeyPrefix + userId
+    }
+
+    private func savedFavoritesOrder(userId: String) -> [String]? {
+        UserDefaults.standard.array(forKey: favoritesOrderKey(userId)) as? [String]
+    }
+
+    private func persistFavoritesOrder(_ ids: [String], userId: String) {
+        UserDefaults.standard.set(ids, forKey: favoritesOrderKey(userId))
+    }
+
     func fetchFavorites() async {
         guard let userId = userId else { return }
 
@@ -236,9 +258,30 @@ class PlayerViewModel: ObservableObject {
 
         do {
             let stations = try await PocketCastsAPI.fetchFavoriteStations(userId: userId)
-            self.favoriteStations = stations
+            self.favoriteStations = applySavedOrder(to: stations, userId: userId)
         } catch {
             print("🎵 PocketRadio: Failed to fetch favorites: \(error.localizedDescription)")
+        }
+    }
+
+    private func applySavedOrder(to stations: [RadioStation], userId: String) -> [RadioStation] {
+        guard let order = savedFavoritesOrder(userId: userId), !order.isEmpty else {
+            return stations
+        }
+        let byId = Dictionary(uniqueKeysWithValues: stations.map { ($0.id, $0) })
+        var sorted: [RadioStation] = order.compactMap { byId[$0] }
+        let known = Set(order)
+        for s in stations where !known.contains(s.id) {
+            sorted.append(s)
+        }
+        persistFavoritesOrder(sorted.map(\.id), userId: userId)
+        return sorted
+    }
+
+    func reorderFavorites(from source: IndexSet, to destination: Int) {
+        favoriteStations.move(fromOffsets: source, toOffset: destination)
+        if let userId = userId {
+            persistFavoritesOrder(favoriteStations.map(\.id), userId: userId)
         }
     }
 
@@ -516,6 +559,109 @@ class PlayerViewModel: ObservableObject {
 
     func toggleBrowse() {
         showBrowseTabs.toggle()
+        if showBrowseTabs && browseTab == .browse && browseResults.isEmpty {
+            Task { await loadTopStations() }
+        }
+    }
+
+    // MARK: - Browse / Favorites
+
+    func selectBrowseTab(_ tab: BrowseTab) {
+        browseTab = tab
+        if tab == .browse && browseResults.isEmpty {
+            Task { await loadTopStations() }
+        }
+    }
+
+    func loadTopStations() async {
+        isBrowseLoading = true
+        defer { isBrowseLoading = false }
+        do {
+            browseResults = try await PocketCastsAPI.topStations()
+        } catch {
+            print("🎵 PocketRadio: top stations failed: \(error.localizedDescription)")
+            browseResults = []
+        }
+    }
+
+    func updateBrowseQuery(_ query: String) {
+        browseQuery = query
+        browseSearchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else {
+            if trimmed.isEmpty {
+                Task { await loadTopStations() }
+            }
+            return
+        }
+        browseSearchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await self?.runSearch(query: trimmed)
+        }
+    }
+
+    private func runSearch(query: String) async {
+        isBrowseLoading = true
+        defer { isBrowseLoading = false }
+        do {
+            browseResults = try await PocketCastsAPI.searchStations(query: query)
+        } catch {
+            print("🎵 PocketRadio: station search failed: \(error.localizedDescription)")
+            browseResults = []
+        }
+    }
+
+    func isFavorite(stationId: String) -> Bool {
+        favoriteStations.contains { $0.id == stationId }
+    }
+
+    func toggleFavorite(_ station: RadioStation) {
+        guard let userId = userId else { return }
+        let wasFavorite = isFavorite(stationId: station.id)
+
+        // Optimistic local update
+        if wasFavorite {
+            favoriteStations.removeAll { $0.id == station.id }
+        } else {
+            favoriteStations.append(station)
+        }
+        persistFavoritesOrder(favoriteStations.map(\.id), userId: userId)
+
+        Task {
+            do {
+                if wasFavorite {
+                    try await PocketCastsAPI.removeFavorite(userId: userId, stationId: station.id)
+                } else {
+                    try await PocketCastsAPI.addFavorite(userId: userId, stationId: station.id)
+                }
+            } catch {
+                print("🎵 PocketRadio: toggle favorite failed: \(error.localizedDescription)")
+                // Roll back on failure
+                await MainActor.run {
+                    if wasFavorite {
+                        self.favoriteStations.append(station)
+                    } else {
+                        self.favoriteStations.removeAll { $0.id == station.id }
+                    }
+                    self.persistFavoritesOrder(self.favoriteStations.map(\.id), userId: userId)
+                }
+            }
+        }
+    }
+
+    /// Play a station from the browse list without requiring it to be in favorites.
+    /// Closes the browse panel and starts playback immediately.
+    func playStation(_ station: RadioStation) {
+        if isPlaying { stopPlayback() }
+        currentSource = .radio(station)
+        nowPlayingTitle = station.name
+        startPlayback()
+        startTracklist(for: station)
+        // If station is among top-3 favorites, sync the selected pill.
+        if let idx = favoriteStations.firstIndex(where: { $0.id == station.id }), idx < 3 {
+            selectedPill = .stream(idx)
+        }
     }
 
     // MARK: - Playback Controls

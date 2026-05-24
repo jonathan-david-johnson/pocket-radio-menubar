@@ -810,6 +810,101 @@ extension PocketCastsAPI {
     }
 }
 
+// MARK: - Radio Browser browse + search + favorite mutations
+
+extension PocketCastsAPI {
+    /// Top voted radio stations (used as the default Browse list).
+    static func topStations(limit: Int = 50) async throws -> [RadioStation] {
+        guard let url = URL(string: "\(radioBrowserBase)/stations/topvote?limit=\(limit)&hidebroken=true") else { return [] }
+        return try await fetchStations(from: url)
+    }
+
+    /// Free-text station search via radio-browser.info.
+    static func searchStations(query: String, limit: Int = 40) async throws -> [RadioStation] {
+        guard var components = URLComponents(string: "\(radioBrowserBase)/stations/search") else { return [] }
+        components.queryItems = [
+            URLQueryItem(name: "name", value: query),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "hidebroken", value: "true"),
+            URLQueryItem(name: "order", value: "votes"),
+            URLQueryItem(name: "reverse", value: "true")
+        ]
+        guard let url = components.url else { return [] }
+        return try await fetchStations(from: url)
+    }
+
+    private static func fetchStations(from url: URL) async throws -> [RadioStation] {
+        var request = URLRequest(url: url)
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw LoginError.badResponse
+        }
+        struct Row: Decodable {
+            let stationuuid: String
+            let name: String?
+            let url_resolved: String?
+            let favicon: String?
+        }
+        let rows = try JSONDecoder().decode([Row].self, from: data)
+        return rows.compactMap { row in
+            guard let name = row.name, !name.isEmpty,
+                  let stream = row.url_resolved, !stream.isEmpty else { return nil }
+            return RadioStation(
+                id: row.stationuuid,
+                name: name,
+                streamURL: stream,
+                logoURL: row.favicon
+            )
+        }
+    }
+
+    /// Add a station UUID to the user's Supabase favorites table.
+    static func addFavorite(userId: String, stationId: String) async throws {
+        guard let url = URL(string: "\(supabaseURL)/rest/v1/radio_favorites") else { throw LoginError.unknown }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue(userId, forHTTPHeaderField: "x-user-uuid")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Upsert so re-faving an existing row doesn't 409.
+        request.setValue("return=minimal,resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        let body = try JSONSerialization.data(withJSONObject: [
+            "user_uuid": userId,
+            "station_id": stationId
+        ])
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LoginError.badResponse }
+        if !(200..<300).contains(http.statusCode) {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            print("🎵 PocketRadio: addFavorite HTTP \(http.statusCode): \(bodyStr)")
+            throw LoginError.badResponse
+        }
+    }
+
+    /// Remove a station UUID from the user's Supabase favorites table.
+    static func removeFavorite(userId: String, stationId: String) async throws {
+        guard let url = URL(string: "\(supabaseURL)/rest/v1/radio_favorites?station_id=eq.\(stationId)&user_uuid=eq.\(userId)") else {
+            throw LoginError.unknown
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue(userId, forHTTPHeaderField: "x-user-uuid")
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LoginError.badResponse }
+        if !(200..<300).contains(http.statusCode) {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            print("🎵 PocketRadio: removeFavorite HTTP \(http.statusCode): \(bodyStr)")
+            throw LoginError.badResponse
+        }
+    }
+}
+
 // MARK: - Int64 Varint Helpers
 
 /// Encode a varint field (wire type 0) for an Int64 value.
