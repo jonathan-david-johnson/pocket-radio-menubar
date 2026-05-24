@@ -316,9 +316,15 @@ extension PocketCastsAPI {
             }
         }
 
+        print("🎵 PocketRadio: up_next/sync decoded \(episodes.count) episodes, \(syncData.count) sync records")
+        for (uuid, sync) in syncData {
+            print("🎵 PocketRadio:   sync uuid=\(uuid) playedUpTo=\(sync.playedUpTo)s duration=\(sync.duration)s")
+        }
+
         // Merge sync data (playedUpTo, duration) into episodes by UUID
         return episodes.map { ep in
             if let sync = syncData[ep.uuid] {
+                print("🎵 PocketRadio:   MATCH ep=\(ep.title.prefix(30)) uuid=\(ep.uuid) playedUpTo=\(sync.playedUpTo) duration=\(sync.duration)")
                 return UpNextEpisode(
                     uuid: ep.uuid,
                     title: ep.title,
@@ -328,6 +334,7 @@ extension PocketCastsAPI {
                     duration: sync.duration
                 )
             }
+            print("🎵 PocketRadio:   NO SYNC for ep=\(ep.title.prefix(30)) uuid=\(ep.uuid)")
             return ep
         }
     }
@@ -400,8 +407,8 @@ extension PocketCastsAPI {
 
     /// Decode Api_UpNextResponse.EpisodeSyncResponse:
     ///   field 1: uuid (string)
-    ///   field 2: playedUpTo (Int32Value sub-message)
-    ///   field 3: duration (Int32Value sub-message)
+    ///   field 6: playedUpTo (Int32Value sub-message)
+    ///   field 7: duration (Int32Value sub-message)
     private static func decodeEpisodeSyncResponse(_ data: Data) -> (uuid: String, playedUpTo: Int, duration: Int)? {
         var uuid = ""
         var playedUpTo = 0
@@ -425,9 +432,9 @@ extension PocketCastsAPI {
                 switch fieldNumber {
                 case 1:
                     uuid = String(data: subData, encoding: .utf8) ?? ""
-                case 2:
+                case 6:
                     playedUpTo = decodeInt32Value(Data(subData)) ?? 0
-                case 3:
+                case 7:
                     duration = decodeInt32Value(Data(subData)) ?? 0
                 default: break
                 }
@@ -441,6 +448,247 @@ extension PocketCastsAPI {
 
         guard !uuid.isEmpty else { return nil }
         return (uuid, playedUpTo, duration)
+    }
+}
+
+// MARK: - user/podcast/episodes (per-podcast episode sync data)
+
+struct EpisodePlaybackInfo: Equatable {
+    let uuid: String
+    let playedUpTo: Int  // seconds
+    let duration: Int    // seconds
+}
+
+extension PocketCastsAPI {
+    private static let podcastEpisodesPath = "/user/podcast/episodes"
+
+    /// Fetch played positions + durations for all episodes of one podcast.
+    static func fetchPodcastEpisodes(token: String, podcastUUID: String) async throws -> [EpisodePlaybackInfo] {
+        guard let url = URL(string: apiBase + podcastEpisodesPath) else {
+            throw LoginError.unknown
+        }
+
+        // Api_UuidRequest { v(1)="2", m(2)="mobile", uuid(3)=podcastUUID }
+        let body = encodeField(1, "2") + encodeField(2, "mobile") + encodeField(3, podcastUUID)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw LoginError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LoginError.badResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200:
+            return decodeSyncEpisodesResponse(data)
+        case 401:
+            throw LoginError.invalidCredentials
+        default:
+            throw LoginError.badResponse
+        }
+    }
+
+    /// Decode Api_SyncEpisodesResponse:
+    ///   field 1: episodes (repeated Api_EpisodeSyncResponse, length-delimited)
+    ///
+    /// Each top-level Api_EpisodeSyncResponse (NOT wrapped Int32Value — plain int32):
+    ///   field 1: uuid (string)
+    ///   field 3: playedUpTo (int32 varint)
+    ///   field 6: duration (int32 varint)
+    private static func decodeSyncEpisodesResponse(_ data: Data) -> [EpisodePlaybackInfo] {
+        var result: [EpisodePlaybackInfo] = []
+        var offset = 0
+        while offset < data.count {
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if fieldNumber == 1 && wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                if let info = decodeEpisodeSyncTopLevel(Data(subData)) {
+                    result.append(info)
+                }
+                offset += length
+            } else if wireType == 0 {
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+            } else if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb + length
+            } else {
+                break
+            }
+        }
+        return result
+    }
+
+    private static func decodeEpisodeSyncTopLevel(_ data: Data) -> EpisodePlaybackInfo? {
+        var uuid = ""
+        var playedUpTo = 0
+        var duration = 0
+        var offset = 0
+        while offset < data.count {
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                if fieldNumber == 1 {
+                    uuid = String(data: subData, encoding: .utf8) ?? ""
+                }
+                offset += length
+            } else if wireType == 0 {
+                let (value, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                switch fieldNumber {
+                case 3: playedUpTo = value
+                case 6: duration = value
+                default: break
+                }
+            } else {
+                break
+            }
+        }
+        guard !uuid.isEmpty else { return nil }
+        return EpisodePlaybackInfo(uuid: uuid, playedUpTo: playedUpTo, duration: duration)
+    }
+}
+
+// MARK: - sync/update_episode (write back playback position)
+
+enum EpisodePlayingStatus: Int32 {
+    case notPlayed = 1
+    case inProgress = 2
+    case completed = 3
+}
+
+extension PocketCastsAPI {
+    private static let updateEpisodePath = "/sync/update_episode"
+
+    /// POST sync/update_episode with Api_UpdateEpisodeRequest:
+    ///   field 1: uuid (string)
+    ///   field 2: podcast (string)
+    ///   field 3: position (Google_Protobuf_Int32Value wrapper, length-delimited sub-message)
+    ///   field 4: status (int32 varint)
+    ///   field 5: duration (int32 varint)
+    static func updateEpisodePosition(
+        token: String,
+        episodeUUID: String,
+        podcastUUID: String,
+        position: Int,
+        duration: Int,
+        status: EpisodePlayingStatus
+    ) async throws {
+        guard let url = URL(string: apiBase + updateEpisodePath) else {
+            throw LoginError.unknown
+        }
+
+        // Int32Value wrapper: field 1 (varint) = position
+        let positionInner = encodeVarintField(1, Int64(position))
+        let positionWrapper = encodeLengthDelimitedField(3, positionInner)
+
+        let body = encodeField(1, episodeUUID)
+                 + encodeField(2, podcastUUID)
+                 + positionWrapper
+                 + encodeVarintField(4, Int64(status.rawValue))
+                 + encodeVarintField(5, Int64(duration))
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        let (_, response): (Data, URLResponse)
+        do {
+            (_, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw LoginError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LoginError.badResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200: return
+        case 401: throw LoginError.invalidCredentials
+        default: throw LoginError.badResponse
+        }
+    }
+}
+
+private func encodeLengthDelimitedField(_ fieldNumber: Int, _ payload: Data) -> Data {
+    let tag = UInt8((fieldNumber << 3) | 2)
+    return Data([tag]) + encodeVarint(payload.count) + payload
+}
+
+// MARK: - up_next/sync change actions (playNow, etc.)
+
+extension PocketCastsAPI {
+    /// Send a "playNow" action that bubbles the given episode to the top of the user's Up Next queue.
+    /// Matches iOS UpNextSyncTask.convertToProto for a single non-replace action.
+    static func playNowAction(token: String, episode: UpNextEpisode) async throws {
+        guard let url = URL(string: apiBase + upNextPath) else { throw LoginError.unknown }
+
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let deviceID = getOrCreateDeviceID()
+
+        // Api_UpNextChanges.Change: uuid(1), action(2)=1, modified(3)=nowMillis, title(4), url(5), podcast(6)
+        let change = encodeField(1, episode.uuid)
+                   + encodeVarintField(2, 1)              // playNow
+                   + encodeVarintField(3, nowMillis)
+                   + encodeField(4, episode.title)
+                   + encodeField(5, episode.url)
+                   + encodeField(6, episode.podcastUUID)
+
+        // Api_UpNextChanges: changes(2) = repeated Change
+        let upNextChanges = encodeLengthDelimitedField(2, change)
+
+        // Api_UpNextSyncRequest: deviceTime(1), version(2)="2", upNext(4)=Api_UpNextChanges, deviceID(6)
+        let body = encodeVarintField(1, nowMillis)
+                 + encodeField(2, "2")
+                 + encodeLengthDelimitedField(4, upNextChanges)
+                 + encodeField(6, deviceID)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LoginError.badResponse }
+        switch http.statusCode {
+        case 200: return
+        case 401: throw LoginError.invalidCredentials
+        default: throw LoginError.badResponse
+        }
     }
 }
 

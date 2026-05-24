@@ -66,6 +66,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 height: button.bounds.height
             )
             popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
+
+            // Resync Up Next + per-podcast playback positions on every open so the menubar
+            // reflects what was played on phone / other devices since last refresh.
+            Task { @MainActor in
+                await self.playerVM.fetchUpNext()
+            }
         }
     }
 

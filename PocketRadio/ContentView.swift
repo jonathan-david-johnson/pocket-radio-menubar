@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  PocketRadio Menubar
 //
-//  M6.1: Pill-based source selection + context-sensitive transport controls.
+//  M6.2.5: Pocket Casts dark theme styling + time-remaining visibility.
 //
 
 import SwiftUI
@@ -30,11 +30,12 @@ struct ContentView: View {
         VStack(spacing: 12) {
             Text("PocketRadio")
                 .font(.headline)
+                .foregroundColor(PocketCastsTheme.primaryText01)
                 .padding(.top, 12)
 
             Text("Sign in with Pocket Casts")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(PocketCastsTheme.primaryText02)
 
             TextField("Email", text: $vm.loginEmail)
                 .textFieldStyle(.roundedBorder)
@@ -50,7 +51,7 @@ struct ContentView: View {
             if let error = vm.loginErrorMessage {
                 Text(error)
                     .font(.caption)
-                    .foregroundColor(.red)
+                    .foregroundColor(PocketCastsTheme.accent)
                     .frame(width: 240)
                     .multilineTextAlignment(.center)
             }
@@ -69,6 +70,7 @@ struct ContentView: View {
             .padding(.bottom, 12)
         }
         .frame(width: 300)
+        .background(PocketCastsTheme.primaryUi01)
     }
 
     private func performLogin() async {
@@ -94,7 +96,7 @@ struct ContentView: View {
                 Button(action: { vm.toggleBrowse() }) {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(vm.showBrowseTabs ? .accentColor : .secondary)
+                        .foregroundColor(vm.showBrowseTabs ? PocketCastsTheme.accent : PocketCastsTheme.primaryIcon02)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
@@ -103,7 +105,9 @@ struct ContentView: View {
             .padding(.top, 8)
             .padding(.bottom, 6)
 
-            Divider()
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
 
             // ── Controls Row ──
             HStack(spacing: 24) {
@@ -116,6 +120,7 @@ struct ContentView: View {
                             Text("\(Int(vm.skipBackSeconds))s")
                                 .font(.system(size: 8))
                         }
+                        .foregroundColor(PocketCastsTheme.primaryIcon02)
                     }
                     .buttonStyle(.plain)
                 }
@@ -124,6 +129,7 @@ struct ContentView: View {
                 Button(action: { vm.togglePlayback() }) {
                     Image(systemName: vm.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 26))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 8)
@@ -137,13 +143,16 @@ struct ContentView: View {
                             Text("\(Int(vm.skipForwardSeconds))s")
                                 .font(.system(size: 8))
                         }
+                        .foregroundColor(PocketCastsTheme.primaryIcon02)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 10)
 
-            Divider()
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
 
             // ── Bottom Section ──
             if vm.showBrowseTabs {
@@ -159,19 +168,22 @@ struct ContentView: View {
             // ── Footer ──
             HStack(spacing: 16) {
                 Button(action: { vm.logout() }) {
-                    Text("Log Out").font(.caption)
+                    Text("Log Out").font(.system(size: 13))
                 }
                 .buttonStyle(.plain)
+                .foregroundColor(PocketCastsTheme.primaryText02)
 
                 Button(action: { NSApplication.shared.terminate(nil) }) {
-                    Text("Quit").font(.caption).foregroundColor(.secondary)
+                    Text("Quit").font(.system(size: 13))
                 }
                 .buttonStyle(.plain)
+                .foregroundColor(PocketCastsTheme.primaryText02)
                 .keyboardShortcut("q")
             }
             .padding(.bottom, 6)
         }
         .frame(width: 300, height: 380)
+        .background(PocketCastsTheme.primaryUi01)
     }
 
     // MARK: - Pill Views
@@ -183,8 +195,8 @@ struct ContentView: View {
             .truncationMode(.tail)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.2))
-            .foregroundColor(isSelected ? .white : .primary)
+            .background(isSelected ? PocketCastsTheme.accent : PocketCastsTheme.primaryUi04)
+            .foregroundColor(.white)
             .cornerRadius(12)
     }
 
@@ -200,8 +212,8 @@ struct ContentView: View {
                     .truncationMode(.tail)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.2))
-                    .foregroundColor(isSelected ? .white : .primary)
+                    .background(isSelected ? PocketCastsTheme.accent : PocketCastsTheme.primaryUi04)
+                    .foregroundColor(.white)
                     .cornerRadius(12)
                     .onTapGesture { vm.selectStream(index) }
             )
@@ -211,8 +223,8 @@ struct ContentView: View {
                     .font(.system(size: 10))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Color.secondary.opacity(0.15))
-                    .foregroundColor(.secondary)
+                    .background(PocketCastsTheme.primaryUi04)
+                    .foregroundColor(PocketCastsTheme.primaryIcon02)
                     .cornerRadius(12)
             )
         }
@@ -222,25 +234,19 @@ struct ContentView: View {
 
     var upNextListView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Up Next")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-
             if vm.upNextEpisodes.isEmpty {
                 HStack {
                     Spacer()
                     if vm.isLoadingUpNext {
                         ProgressView().scaleEffect(0.7)
+                            .foregroundColor(PocketCastsTheme.primaryText02)
                         Text("Loading...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 13))
+                            .foregroundColor(PocketCastsTheme.primaryText02)
                     } else {
                         Text("No episodes in Up Next")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 13))
+                            .foregroundColor(PocketCastsTheme.primaryText02)
                     }
                     Spacer()
                 }
@@ -265,83 +271,111 @@ struct ContentView: View {
             return false
         }()
 
+        let artworkURL = URL(string: "https://static.pocketcasts.com/discover/images/130/\(episode.podcastUUID).jpg")
+
         return VStack(spacing: 0) {
             Button(action: { vm.selectEpisode(episode) }) {
-                HStack(spacing: 8) {
-                    // Play indicator or spacer
-                    if isCurrent {
-                        Image(systemName: vm.isPlaying ? "play.fill" : "pause.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.accentColor)
-                            .frame(width: 14)
-                    } else {
-                        Color.clear.frame(width: 14)
+                HStack(spacing: 12) {
+                    AsyncImage(url: artworkURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().interpolation(.medium)
+                        case .empty, .failure:
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(PocketCastsTheme.primaryUi04)
+                        @unknown default:
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(PocketCastsTheme.primaryUi04)
+                        }
                     }
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(episode.title)
-                            .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
-                            .lineLimit(2)
-                            .foregroundColor(.primary)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(PocketCastsTheme.primaryText01)
+                            .lineLimit(1)
 
-                        if !episode.podcastUUID.isEmpty {
-                            Text(episode.podcastUUID)
-                                .font(.system(size: 9))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
+                        let timeText = vm.timeRemainingText(for: episode)
+                        Text(timeText.isEmpty ? episode.podcastUUID : timeText)
+                            .font(.system(size: 13))
+                            .foregroundColor(PocketCastsTheme.primaryText02)
+                            .lineLimit(1)
                     }
 
                     Spacer()
+
+                    // Playing indicator
+                    if isCurrent && vm.isPlaying {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 14))
+                            .foregroundColor(PocketCastsTheme.accent)
+                    }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(isCurrent ? Color.accentColor.opacity(0.1) : Color.clear)
+                .padding(.vertical, 8)
+                .background(isCurrent ? PocketCastsTheme.primaryUi04.opacity(0.5) : Color.clear)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            Divider()
-                .padding(.leading, 28)
+            // Inset divider
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
+                .padding(.leading, 72)
         }
     }
 
     var nowPlayingInfo: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
             if let source = vm.currentSource {
-                Text(vm.nowPlayingTitle)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
+                VStack(spacing: 4) {
+                    Text(vm.nowPlayingTitle)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
 
-                Text(source.isRadio ? "Live Stream" : "Up Next")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    Text(source.isRadio ? "Live Stream" : "Up Next")
+                        .font(.system(size: 13))
+                        .foregroundColor(PocketCastsTheme.primaryText02)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(PocketCastsTheme.primaryUi04)
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             } else if vm.isLoadingUpNext {
                 ProgressView().scaleEffect(0.7)
-                Text("Loading...").font(.caption).foregroundColor(.secondary)
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                Text("Loading...")
+                    .font(.system(size: 13))
+                    .foregroundColor(PocketCastsTheme.primaryText02)
             } else {
                 Text("Select a source")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundColor(PocketCastsTheme.primaryText02)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
     }
 
     var browsePlaceholder: some View {
         VStack(spacing: 12) {
             Text("Favorites / Browse")
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(PocketCastsTheme.primaryText01)
                 .padding(.top, 8)
 
             Text("Coming in M6.4")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.system(size: 13))
+                .foregroundColor(PocketCastsTheme.primaryText02)
 
             Spacer()
         }
