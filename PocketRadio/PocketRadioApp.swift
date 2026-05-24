@@ -46,9 +46,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
         applyIdleIcon()
 
-        panel = NSPanel(
+        panel = KeyablePanel(
             contentRect: NSRect(origin: .zero, size: panelSize),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -95,7 +95,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let originY = buttonFrameInScreen.minY - panelSize.height - 4 // small gap
 
         panel.setFrameOrigin(NSPoint(x: originX, y: originY))
-        panel.orderFrontRegardless()
+        // Make the panel key so the SwiftUI hierarchy receives scroll-wheel
+        // and keyboard events. Activating the app makes our panel front-most
+        // and lets NSScrollView (the backing for SwiftUI ScrollView) work.
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
 
         // Refresh Up Next on every open so the menubar reflects whatever has
         // happened on the phone / other devices since the last view.
@@ -210,5 +214,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             await scrollTitle(fullTitle) // loop
         }
     }
+}
+
+// Borderless NSPanel must opt-in to becoming key. Without this scroll wheel
+// + keyboard events don't reach SwiftUI hosted inside.
+final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
