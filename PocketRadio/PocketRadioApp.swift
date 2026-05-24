@@ -30,12 +30,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         self.playerVM = PlayerViewModel()
 
-        statusItem = NSStatusBar.system.statusItem(withLength: 140)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let statusButton = statusItem.button {
-            statusButton.title = "📻 Radio"
             statusButton.action = #selector(togglePopover)
         }
+        applyIdleIcon()
 
         popover = NSPopover()
         popover.contentSize = NSSize(width: 300, height: 400)
@@ -59,10 +59,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Anchor a zero-width rect at the button's right edge so the popover
+            // pins its right side there. Otherwise centering an anchor rect over
+            // the button shifts horizontally when the button grows/shrinks
+            // (icon → scrolling title).
             let rect = NSRect(
-                x: button.bounds.maxX - 300,
+                x: button.bounds.maxX,
                 y: button.bounds.minY,
-                width: 300,
+                width: 0,
                 height: button.bounds.height
             )
             popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
@@ -84,6 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         if playerVM.isPlaying {
             let title = "▶ " + playerVM.nowPlayingTitle
+            button.image = nil
             statusItem.length = 160
 
             if title.count <= maxTitleLength {
@@ -92,10 +97,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 scrollTask = Task { await scrollTitle(title) }
             }
         } else {
-            statusItem.length = 140
             scrollTask?.cancel()
-            button.title = "📻 Radio"
+            applyIdleIcon()
         }
+    }
+
+    /// Show the Pocket Casts icon, no title, and shrink to icon width.
+    @MainActor private func applyIdleIcon() {
+        guard let button = statusItem.button else { return }
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
+        if let icon = NSImage(named: "PocketCastsIcon") {
+            // Menubar height is ~22pt on standard bars. Render at 18pt for breathing room.
+            let target = NSSize(width: 18, height: 18)
+            let resized = NSImage(size: target)
+            resized.lockFocus()
+            icon.draw(in: NSRect(origin: .zero, size: target))
+            resized.unlockFocus()
+            // Template mode lets macOS tint the (now red-stripped, white-curves)
+            // icon to match menubar appearance (dark/light).
+            resized.isTemplate = true
+            button.image = resized
+        }
+        statusItem.length = NSStatusItem.variableLength
     }
 
     private func menuBarAttributedString(_ text: String) -> NSAttributedString {
