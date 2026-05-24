@@ -728,9 +728,19 @@ class PlayerViewModel: ObservableObject {
 
     func togglePlayback() {
         if isPlaying {
-            stopPlayback()
+            // Pause without tearing down the AVPlayerItem so resume continues
+            // from the same position. Restarting a non-live mp3 stream (e.g. NPR)
+            // would otherwise rewind to the beginning.
+            pausePlayback()
         } else {
-            // If nothing playing yet, pick default
+            if let item = audioPlayer.currentItem, currentSource != nil, item.error == nil {
+                // Resume existing item
+                audioPlayer.play()
+                isPlaying = true
+                notifyNowPlayingChanged()
+                return
+            }
+            // No live item; start fresh
             if currentSource == nil {
                 if let ep = topEpisode {
                     currentSource = .podcast(ep)
@@ -739,6 +749,23 @@ class PlayerViewModel: ObservableObject {
             }
             startPlayback()
         }
+    }
+
+    /// Pause playback while keeping the AVPlayerItem so resume continues from
+    /// the same position. Saves podcast progress to the server.
+    private func pausePlayback() {
+        if case .podcast(let ep) = currentSource {
+            let position = Int(audioPlayer.currentTime().seconds)
+            if position > 0 {
+                let duration = ep.duration > 0 ? ep.duration : (episodeDurations[ep.uuid] ?? 0)
+                let remaining = duration - position
+                let status: EpisodePlayingStatus = (duration > 0 && remaining <= 10) ? .completed : .inProgress
+                savePositionNow(for: ep, position: position, status: status)
+            }
+        }
+        audioPlayer.pause()
+        isPlaying = false
+        notifyNowPlayingChanged()
     }
 
     func skipBack() {

@@ -3,6 +3,8 @@
 //  PocketRadio Menubar
 //
 //  M1: Skeleton menubar app — plays one hardcoded stream.
+//  M6.x: NSPanel container (replaces NSPopover) so popup position is independent
+//        of the status item width changes.
 //
 
 import SwiftUI
@@ -19,10 +21,16 @@ struct PocketRadioApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
+    private var panel: NSPanel!
     private var playerVM: PlayerViewModel!
     private var scrollTask: Task<Void, Never>?
     private let maxTitleLength = 22
+
+    private let playingStatusLength: CGFloat = 160
+    // Matches ContentView.swift's frame(width: 300, height: 380) so the panel
+    // edges line up exactly with the dark content (no grey strips above/below).
+    private let panelSize = NSSize(width: 300, height: 380)
+    private var outsideClickMonitor: Any?
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -33,16 +41,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let statusButton = statusItem.button {
-            statusButton.action = #selector(togglePopover)
+            statusButton.action = #selector(togglePanel)
+            statusButton.target = self
         }
         applyIdleIcon()
 
-        popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 400)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
-            rootView: ContentView(vm: self.playerVM)
+        panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: panelSize),
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
         )
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.hasShadow = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hidesOnDeactivate = false
+        let hosting = NSHostingView(rootView: ContentView(vm: self.playerVM))
+        hosting.frame = NSRect(origin: .zero, size: panelSize)
+        hosting.wantsLayer = true
+        hosting.layer?.cornerRadius = 8
+        hosting.layer?.masksToBounds = true
+        panel.contentView = hosting
 
         // Observe playback changes to update menubar title
         NotificationCenter.default.addObserver(
@@ -53,29 +74,56 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         )
     }
 
-    @MainActor @objc func togglePopover() {
-        guard let button = statusItem.button else { return }
+    // MARK: - Panel show / hide
 
-        if popover.isShown {
-            popover.performClose(nil)
+    @MainActor @objc func togglePanel() {
+        if panel.isVisible {
+            hidePanel()
         } else {
-            // Anchor a zero-width rect at the button's right edge so the popover
-            // pins its right side there. Otherwise centering an anchor rect over
-            // the button shifts horizontally when the button grows/shrinks
-            // (icon → scrolling title).
-            let rect = NSRect(
-                x: button.bounds.maxX,
-                y: button.bounds.minY,
-                width: 0,
-                height: button.bounds.height
-            )
-            popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
+            showPanel()
+        }
+    }
 
-            // Resync Up Next + per-podcast playback positions on every open so the menubar
-            // reflects what was played on phone / other devices since last refresh.
-            Task { @MainActor in
-                await self.playerVM.fetchUpNext()
-            }
+    @MainActor private func showPanel() {
+        guard let button = statusItem.button, let buttonWindow = button.window else { return }
+
+        // Position panel so its right edge aligns with the status item button's
+        // right edge in screen coords, and its top edge sits just below the
+        // menubar.
+        let buttonFrameInScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let originX = buttonFrameInScreen.maxX - panelSize.width
+        let originY = buttonFrameInScreen.minY - panelSize.height - 4 // small gap
+
+        panel.setFrameOrigin(NSPoint(x: originX, y: originY))
+        panel.orderFrontRegardless()
+
+        // Refresh Up Next on every open so the menubar reflects whatever has
+        // happened on the phone / other devices since the last view.
+        Task { @MainActor in
+            await self.playerVM.fetchUpNext()
+        }
+
+        installOutsideClickMonitor()
+    }
+
+    @MainActor private func hidePanel() {
+        panel.orderOut(nil)
+        removeOutsideClickMonitor()
+    }
+
+    private func installOutsideClickMonitor() {
+        removeOutsideClickMonitor()
+        // Global monitor fires for clicks anywhere outside this app's windows;
+        // perfect for "click outside the panel to dismiss".
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.hidePanel() }
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
         }
     }
 
@@ -89,7 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if playerVM.isPlaying {
             let title = "▶ " + playerVM.nowPlayingTitle
             button.image = nil
-            statusItem.length = 160
+            statusItem.length = playingStatusLength
 
             if title.count <= maxTitleLength {
                 button.attributedTitle = menuBarAttributedString(title)
@@ -97,31 +145,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 scrollTask = Task { await scrollTitle(title) }
             }
         } else {
-            scrollTask?.cancel()
             applyIdleIcon()
+            statusItem.length = NSStatusItem.variableLength
         }
-
-        // Status item width changed (icon <-> text). If popover is open it stays
-        // pinned to the previous frame, so re-show it to re-anchor at the new
-        // button right edge.
-        if popover.isShown {
-            repositionPopover()
-        }
+        // With NSPanel, status item width changes don't move the popup —
+        // the panel has its own absolute screen position.
     }
 
-    @MainActor private func repositionPopover() {
-        guard let button = statusItem.button else { return }
-        popover.performClose(nil)
-        let rect = NSRect(
-            x: button.bounds.maxX,
-            y: button.bounds.minY,
-            width: 0,
-            height: button.bounds.height
-        )
-        popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
-    }
-
-    /// Show the Pocket Casts icon, no title, and shrink to icon width.
+    /// Show the Pocket Casts icon, no title.
     @MainActor private func applyIdleIcon() {
         guard let button = statusItem.button else { return }
         button.title = ""
@@ -133,12 +164,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             resized.lockFocus()
             icon.draw(in: NSRect(origin: .zero, size: target))
             resized.unlockFocus()
-            // Template mode lets macOS tint the (now red-stripped, white-curves)
+            // Template mode lets macOS tint the (red-stripped, white-curves)
             // icon to match menubar appearance (dark/light).
             resized.isTemplate = true
             button.image = resized
         }
-        statusItem.length = NSStatusItem.variableLength
     }
 
     private func menuBarAttributedString(_ text: String) -> NSAttributedString {
@@ -181,3 +211,4 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 }
+
