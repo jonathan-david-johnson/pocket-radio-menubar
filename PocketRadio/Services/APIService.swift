@@ -832,6 +832,106 @@ private func encodeVarint64(_ value: Int64) -> Data {
     return result
 }
 
+// MARK: - Radio Tracklist (KCRW, KEXP)
+
+struct TracklistEntry: Equatable, Identifiable {
+    let id = UUID()
+    let title: String
+    let artist: String
+    let album: String?
+    let albumArtURL: URL?
+    let playedAt: Date?
+}
+
+extension PocketCastsAPI {
+    private static let kcrwTracklistURL = "https://tracklist-api.kcrw.com/Music/all/1?page_size=10"
+    private static let kexpTracklistURL = "https://api.kexp.org/v2/plays/?limit=10"
+
+    /// Tracklist endpoint for the given station, or nil if unsupported.
+    static func tracklistURL(for station: RadioStation) -> String? {
+        let name = station.name.lowercased()
+        if name.contains("kcrw") { return kcrwTracklistURL }
+        if name.contains("kexp") { return kexpTracklistURL }
+        return nil
+    }
+
+    static func fetchTracklist(for station: RadioStation) async -> [TracklistEntry] {
+        guard let urlString = tracklistURL(for: station),
+              let url = URL(string: urlString) else { return [] }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                print("🎵 PocketRadio: tracklist HTTP \(http.statusCode) for \(station.name)")
+                return []
+            }
+            let name = station.name.lowercased()
+            if name.contains("kcrw") { return parseKCRW(data) }
+            if name.contains("kexp") { return parseKEXP(data) }
+            return []
+        } catch {
+            print("🎵 PocketRadio: tracklist fetch failed for \(station.name): \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private struct KCRWTrack: Decodable {
+        let title: String?
+        let artist: String?
+        let album: String?
+        let albumImage: String?
+        let albumImageLarge: String?
+        let datetime: String?
+    }
+
+    private static func parseKCRW(_ data: Data) -> [TracklistEntry] {
+        guard let tracks = try? JSONDecoder().decode([KCRWTrack].self, from: data) else { return [] }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        return tracks.compactMap { t in
+            guard let title = t.title, !title.isEmpty,
+                  let artist = t.artist, !artist.isEmpty, artist != "[BREAK]" else { return nil }
+            let imageString = t.albumImageLarge ?? t.albumImage
+            return TracklistEntry(
+                title: title,
+                artist: artist,
+                album: t.album,
+                albumArtURL: imageString.flatMap(URL.init(string:)),
+                playedAt: t.datetime.flatMap(iso.date(from:))
+            )
+        }
+    }
+
+    private struct KEXPResponse: Decodable {
+        struct Play: Decodable {
+            let play_type: String
+            let song: String?
+            let artist: String?
+            let album: String?
+            let thumbnail_uri: String?
+            let airdate: String?
+        }
+        let results: [Play]
+    }
+
+    private static func parseKEXP(_ data: Data) -> [TracklistEntry] {
+        guard let resp = try? JSONDecoder().decode(KEXPResponse.self, from: data) else { return [] }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        return resp.results.compactMap { play in
+            guard play.play_type == "trackplay",
+                  let song = play.song, let artist = play.artist else { return nil }
+            return TracklistEntry(
+                title: song,
+                artist: artist,
+                album: play.album,
+                albumArtURL: play.thumbnail_uri.flatMap(URL.init(string:)),
+                playedAt: play.airdate.flatMap(iso.date(from:))
+            )
+        }
+    }
+}
+
 // MARK: - Keychain Manager
 
 enum KeychainManager {

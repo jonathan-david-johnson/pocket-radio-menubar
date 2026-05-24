@@ -55,6 +55,12 @@ class PlayerViewModel: ObservableObject {
     @Published var favoriteStations: [RadioStation] = []
     @Published var isLoadingFavorites: Bool = false
 
+    // MARK: - Tracklist (radio streams w/ supported tracklist API)
+    @Published var tracklist: [TracklistEntry] = []
+    @Published var isLoadingTracklist: Bool = false
+    private var tracklistStationId: String?
+    private var tracklistRefreshTask: Task<Void, Never>?
+
     // MARK: - Playback
     @Published var isPlaying: Bool = false
     @Published var currentSource: PlayingSource?
@@ -242,6 +248,7 @@ class PlayerViewModel: ObservableObject {
         guard selectedPill != .podcast else { return }
         showBrowseTabs = false
         selectedPill = .podcast
+        stopTracklist()
 
         if let ep = topEpisode {
             if isPlaying { stopPlayback() }
@@ -267,6 +274,45 @@ class PlayerViewModel: ObservableObject {
         currentSource = .radio(station)
         nowPlayingTitle = station.name
         startPlayback()
+        startTracklist(for: station)
+    }
+
+    // MARK: - Tracklist
+
+    private func startTracklist(for station: RadioStation) {
+        tracklistRefreshTask?.cancel()
+        tracklistRefreshTask = nil
+
+        guard PocketCastsAPI.tracklistURL(for: station) != nil else {
+            tracklist = []
+            tracklistStationId = nil
+            return
+        }
+
+        tracklistStationId = station.id
+        tracklist = []
+        isLoadingTracklist = true
+
+        tracklistRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self = self else { return }
+                let entries = await PocketCastsAPI.fetchTracklist(for: station)
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self.tracklist = entries
+                    self.isLoadingTracklist = false
+                }
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
+            }
+        }
+    }
+
+    private func stopTracklist() {
+        tracklistRefreshTask?.cancel()
+        tracklistRefreshTask = nil
+        tracklist = []
+        tracklistStationId = nil
+        isLoadingTracklist = false
     }
 
     func selectEpisode(_ episode: UpNextEpisode) {
@@ -277,6 +323,7 @@ class PlayerViewModel: ObservableObject {
         }
 
         if isPlaying { stopPlayback() }
+        stopTracklist()
 
         // Bubble tapped episode to top of local Up Next (matches iOS behavior).
         if let idx = upNextEpisodes.firstIndex(where: { $0.uuid == episode.uuid }), idx > 0 {

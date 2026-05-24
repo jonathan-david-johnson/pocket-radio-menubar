@@ -160,6 +160,19 @@ struct ContentView: View {
                 Spacer()
             } else if vm.selectedPill == .podcast {
                 upNextListView
+            } else if !vm.tracklist.isEmpty {
+                tracklistView
+            } else if vm.isLoadingTracklist {
+                HStack {
+                    Spacer()
+                    ProgressView().scaleEffect(0.7)
+                    Text("Loading tracklist...")
+                        .font(.system(size: 13))
+                        .foregroundColor(PocketCastsTheme.primaryText02)
+                    Spacer()
+                }
+                .padding(.vertical, 20)
+                Spacer()
             } else {
                 nowPlayingInfo
                 Spacer()
@@ -231,6 +244,50 @@ struct ContentView: View {
     }
 
     // MARK: - Bottom Section Content
+
+    var tracklistView: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(vm.tracklist) { entry in
+                    tracklistRow(entry)
+                }
+            }
+        }
+    }
+
+    func tracklistRow(_ entry: TracklistEntry) -> some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: entry.albumArtURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().interpolation(.medium)
+                case .empty, .failure:
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(PocketCastsTheme.primaryUi04)
+                @unknown default:
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(PocketCastsTheme.primaryUi04)
+                }
+            }
+            .frame(width: 40, height: 40)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(PocketCastsTheme.primaryText01)
+                    .lineLimit(1)
+                Text(entry.artist)
+                    .font(.system(size: 12))
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
 
     var upNextListView: some View {
         VStack(alignment: .leading, spacing: 0) {
