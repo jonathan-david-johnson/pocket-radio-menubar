@@ -810,6 +810,205 @@ extension PocketCastsAPI {
     }
 }
 
+// MARK: - Subscribed podcasts + New Releases
+
+struct SubscribedPodcast: Equatable {
+    let uuid: String
+    let title: String
+}
+
+struct NewReleaseEpisode: Identifiable, Equatable {
+    let id: String          // episode UUID
+    let uuid: String
+    let podcastUUID: String
+    let podcastTitle: String
+    let title: String
+    let url: String
+    let duration: Int
+    let published: Date
+}
+
+extension PocketCastsAPI {
+    private static let podcastListPath = "/user/podcast/list"
+    private static let cacheBase = "https://cache.pocketcasts.com"
+
+    /// POST user/podcast/list — Api_UserPodcastListRequest { v(1)="2", m(2)="mobile" }.
+    /// Decodes Api_UserPodcastListResponse { podcasts(1)=repeated UserPodcastResponse }
+    /// where each podcast has uuid(1) + title(4).
+    static func fetchSubscribedPodcasts(token: String) async throws -> [SubscribedPodcast] {
+        guard let url = URL(string: apiBase + podcastListPath) else { throw LoginError.unknown }
+
+        let body = encodeField(1, "2") + encodeField(2, "mobile")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LoginError.badResponse }
+        switch http.statusCode {
+        case 200: return decodePodcastListResponse(data)
+        case 401: throw LoginError.invalidCredentials
+        default: throw LoginError.badResponse
+        }
+    }
+
+    private static func decodePodcastListResponse(_ data: Data) -> [SubscribedPodcast] {
+        var result: [SubscribedPodcast] = []
+        var offset = 0
+        while offset < data.count {
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if fieldNumber == 1 && wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                if let podcast = decodeUserPodcastResponse(Data(subData)) {
+                    result.append(podcast)
+                }
+                offset += length
+            } else if wireType == 0 {
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+            } else if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb + length
+            } else {
+                break
+            }
+        }
+        return result
+    }
+
+    private static func decodeUserPodcastResponse(_ data: Data) -> SubscribedPodcast? {
+        var uuid = ""
+        var title = ""
+        var offset = 0
+        while offset < data.count {
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+
+            if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                guard offset + length <= data.count else { break }
+                let subData = data[offset..<offset + length]
+                if fieldNumber == 1 {
+                    uuid = String(data: subData, encoding: .utf8) ?? ""
+                } else if fieldNumber == 4 {
+                    title = String(data: subData, encoding: .utf8) ?? ""
+                }
+                offset += length
+            } else if wireType == 0 {
+                let (_, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+            } else {
+                break
+            }
+        }
+        guard !uuid.isEmpty else { return nil }
+        return SubscribedPodcast(uuid: uuid, title: title)
+    }
+
+    /// GET cache.pocketcasts.com/mobile/podcast/full/<uuid>. Returns the JSON episode array.
+    /// No auth required; cache server follows a 302 to the actual JSON blob.
+    static func fetchFullEpisodes(podcastUUID: String, podcastTitle: String) async -> [NewReleaseEpisode] {
+        guard let url = URL(string: "\(cacheBase)/mobile/podcast/full/\(podcastUUID)") else { return [] }
+        var request = URLRequest(url: url)
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+            return parseFullEpisodes(data, podcastUUID: podcastUUID, podcastTitle: podcastTitle)
+        } catch {
+            print("🎵 PocketRadio: full episodes fetch failed for \(podcastUUID): \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private struct FullResponse: Decodable {
+        struct Podcast: Decodable {
+            let title: String?
+            let episodes: [Episode]?
+        }
+        struct Episode: Decodable {
+            let uuid: String
+            let title: String?
+            let url: String?
+            let duration: Int?
+            let published: String?
+        }
+        let podcast: Podcast?
+    }
+
+    private static func parseFullEpisodes(_ data: Data, podcastUUID: String, podcastTitle: String) -> [NewReleaseEpisode] {
+        guard let resp = try? JSONDecoder().decode(FullResponse.self, from: data),
+              let podcast = resp.podcast,
+              let episodes = podcast.episodes else { return [] }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        let displayTitle = podcast.title?.isEmpty == false ? (podcast.title ?? podcastTitle) : podcastTitle
+        return episodes.compactMap { e in
+            guard let title = e.title, !title.isEmpty,
+                  let url = e.url, !url.isEmpty,
+                  let publishedStr = e.published,
+                  let published = iso.date(from: publishedStr) else { return nil }
+            return NewReleaseEpisode(
+                id: e.uuid,
+                uuid: e.uuid,
+                podcastUUID: podcastUUID,
+                podcastTitle: displayTitle,
+                title: title,
+                url: url,
+                duration: e.duration ?? 0,
+                published: published
+            )
+        }
+    }
+
+    /// Build the New Releases list: list subscribed podcasts, fan out to /podcast/full,
+    /// filter to last `days` days, sort by published descending.
+    static func fetchNewReleases(token: String, days: Int = 14) async -> [NewReleaseEpisode] {
+        let podcasts: [SubscribedPodcast]
+        do {
+            podcasts = try await fetchSubscribedPodcasts(token: token)
+        } catch {
+            print("🎵 PocketRadio: subscribed podcasts fetch failed: \(error.localizedDescription)")
+            return []
+        }
+
+        let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 60 * 60)
+
+        let allEpisodes = await withTaskGroup(of: [NewReleaseEpisode].self) { group -> [NewReleaseEpisode] in
+            for podcast in podcasts {
+                group.addTask {
+                    await fetchFullEpisodes(podcastUUID: podcast.uuid, podcastTitle: podcast.title)
+                }
+            }
+            var collected: [NewReleaseEpisode] = []
+            for await eps in group {
+                collected.append(contentsOf: eps)
+            }
+            return collected
+        }
+
+        return allEpisodes
+            .filter { $0.published >= cutoff }
+            .sorted { $0.published > $1.published }
+    }
+}
+
 // MARK: - Radio Browser browse + search + favorite mutations
 
 extension PocketCastsAPI {

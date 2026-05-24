@@ -160,7 +160,7 @@ struct ContentView: View {
             if vm.showBrowseTabs {
                 browsePlaceholder
             } else if vm.selectedPill == .podcast {
-                upNextListView
+                podcastTabsSection
             } else if !vm.tracklist.isEmpty {
                 tracklistView
             } else if vm.isLoadingTracklist {
@@ -386,6 +386,95 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    // MARK: - Podcast tabs (Up Next / New Releases)
+
+    var podcastTabsSection: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                podcastTabButton("Up Next", tab: .upNext)
+                podcastTabButton("New Releases", tab: .newReleases)
+            }
+            .padding(.top, 6)
+            .padding(.horizontal, 12)
+
+            if vm.podcastTab == .upNext {
+                upNextListView
+            } else {
+                newReleasesView
+            }
+        }
+    }
+
+    private func podcastTabButton(_ label: String, tab: PlayerViewModel.PodcastTab) -> some View {
+        let isSelected = vm.podcastTab == tab
+        return Button(action: { vm.selectPodcastTab(tab) }) {
+            VStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? PocketCastsTheme.primaryText01 : PocketCastsTheme.primaryText02)
+                Rectangle()
+                    .fill(isSelected ? PocketCastsTheme.accent : Color.clear)
+                    .frame(height: 2)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    var newReleasesView: some View {
+        Group {
+            if vm.isLoadingNewReleases && vm.newReleases.isEmpty {
+                emptyMessage("Loading new releases…")
+            } else if vm.newReleases.isEmpty {
+                emptyMessage("No new episodes in the last 14 days.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(vm.newReleases) { release in
+                            newReleaseRow(release)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func newReleaseRow(_ release: NewReleaseEpisode) -> some View {
+        let artworkURL = URL(string: "https://static.pocketcasts.com/discover/images/130/\(release.podcastUUID).jpg")
+        return Button(action: { vm.playNewReleaseEpisode(release) }) {
+            HStack(spacing: 12) {
+                AsyncImage(url: artworkURL) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().interpolation(.medium)
+                    case .empty, .failure:
+                        RoundedRectangle(cornerRadius: 4).fill(PocketCastsTheme.primaryUi04)
+                    @unknown default:
+                        RoundedRectangle(cornerRadius: 4).fill(PocketCastsTheme.primaryUi04)
+                    }
+                }
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(release.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
+                        .lineLimit(1)
+                    Text(release.podcastTitle)
+                        .font(.system(size: 12))
+                        .foregroundColor(PocketCastsTheme.primaryText02)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     var upNextListView: some View {

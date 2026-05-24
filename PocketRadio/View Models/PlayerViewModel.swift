@@ -69,6 +69,12 @@ class PlayerViewModel: ObservableObject {
     @Published var isBrowseLoading: Bool = false
     private var browseSearchTask: Task<Void, Never>?
 
+    // MARK: - Podcast section tabs
+    enum PodcastTab { case upNext, newReleases }
+    @Published var podcastTab: PodcastTab = .upNext
+    @Published var newReleases: [NewReleaseEpisode] = []
+    @Published var isLoadingNewReleases: Bool = false
+
     // MARK: - Playback
     @Published var isPlaying: Bool = false
     @Published var currentSource: PlayingSource?
@@ -554,6 +560,60 @@ class PlayerViewModel: ObservableObject {
             let hours = seconds / 3600
             let mins = (seconds % 3600) / 60
             return mins > 0 ? "\(hours)h \(mins)m" : "\(hours)h"
+        }
+    }
+
+    // MARK: - Podcast Tabs
+
+    func selectPodcastTab(_ tab: PodcastTab) {
+        podcastTab = tab
+        if tab == .newReleases && newReleases.isEmpty {
+            Task { await fetchNewReleases() }
+        }
+    }
+
+    func fetchNewReleases() async {
+        guard let token = token else { return }
+        isLoadingNewReleases = true
+        defer { isLoadingNewReleases = false }
+        let episodes = await PocketCastsAPI.fetchNewReleases(token: token)
+        self.newReleases = episodes
+        print("🎵 PocketRadio: New Releases loaded \(episodes.count) episodes")
+    }
+
+    /// Play a New Releases episode by bubbling it to top of Up Next via playNow.
+    func playNewReleaseEpisode(_ release: NewReleaseEpisode) {
+        let upNext = UpNextEpisode(
+            uuid: release.uuid,
+            title: release.title,
+            url: release.url,
+            podcastUUID: release.podcastUUID,
+            playedUpTo: 0,
+            duration: release.duration
+        )
+
+        // Insert at top of local list (or move if already there)
+        if let idx = upNextEpisodes.firstIndex(where: { $0.uuid == release.uuid }) {
+            upNextEpisodes.remove(at: idx)
+        }
+        upNextEpisodes.insert(upNext, at: 0)
+        topEpisode = upNextEpisodes.first
+
+        if isPlaying { stopPlayback() }
+        stopTracklist()
+        currentSource = .podcast(upNext)
+        nowPlayingTitle = upNext.title
+        startPlayback()
+
+        if let token = token {
+            Task {
+                do {
+                    try await PocketCastsAPI.playNowAction(token: token, episode: upNext)
+                    print("🎵 PocketRadio: playNow synced for new release \(upNext.title.prefix(30))")
+                } catch {
+                    print("🎵 PocketRadio: playNow failed: \(error.localizedDescription)")
+                }
+            }
         }
     }
 

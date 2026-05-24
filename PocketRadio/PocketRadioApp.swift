@@ -100,6 +100,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             scrollTask?.cancel()
             applyIdleIcon()
         }
+
+        // Status item width changed (icon <-> text). If popover is open it stays
+        // pinned to the previous frame, so re-show it to re-anchor at the new
+        // button right edge.
+        if popover.isShown {
+            repositionPopover()
+        }
+    }
+
+    @MainActor private func repositionPopover() {
+        guard let button = statusItem.button else { return }
+        popover.performClose(nil)
+        let rect = NSRect(
+            x: button.bounds.maxX,
+            y: button.bounds.minY,
+            width: 0,
+            height: button.bounds.height
+        )
+        popover.show(relativeTo: rect, of: button, preferredEdge: .minY)
     }
 
     /// Show the Pocket Casts icon, no title, and shrink to icon width.
