@@ -107,7 +107,7 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Now Playing Info
     @Published var nowPlayingTitle: String = ""
 
-    /// True when a live radio stream is playing — shows the Tracklist/ACR toggle.
+    /// Show ACR button when playing a radio station.
     var showTrackSourceToggle: Bool {
         currentSource?.isRadio == true
     }
@@ -451,7 +451,8 @@ class PlayerViewModel: ObservableObject {
             guard let self else { return }
             self.isIdentifying = false
             acrLog.debug("identified '\(result.displayTitle, privacy: .public)' confidence=\(result.confidence)")
-            self.showToast("\(result.displayTitle) (\(result.confidence)%)")
+            self.showToast("\(result.displayTitle)")
+            Task { await self.insertACRResult(result) }
         }
         fp.onError = { [weak self] msg in
             guard let self else { return }
@@ -462,6 +463,34 @@ class PlayerViewModel: ObservableObject {
         }
         fingerprinter = fp
         fp.identifyOnce()
+    }
+
+    @MainActor
+    private func insertACRResult(_ result: TrackFingerprintResult) async {
+        let artURL = await fetchITunesArtwork(title: result.title, artist: result.artist)
+        let entry = TracklistEntry(
+            title: result.title,
+            artist: result.artist,
+            album: result.album.isEmpty ? nil : result.album,
+            albumArtURL: artURL,
+            playedAt: Date()
+        )
+        tracklist.insert(entry, at: 0)
+        nowPlayingTitle = result.displayTitle
+        NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
+    }
+
+    private func fetchITunesArtwork(title: String, artist: String) async -> URL? {
+        let query = "\(artist) \(title)"
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let url = URL(string: "https://itunes.apple.com/search?term=\(query)&entity=song&limit=1") else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = json["results"] as? [[String: Any]],
+              let first = results.first,
+              let art = first["artworkUrl100"] as? String else { return nil }
+        // Upgrade to 500px
+        return URL(string: art.replacingOccurrences(of: "100x100bb", with: "500x500bb"))
     }
 
     private func showToast(_ message: String) {
