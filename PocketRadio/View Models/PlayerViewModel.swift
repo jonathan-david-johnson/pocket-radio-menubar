@@ -66,7 +66,10 @@ class PlayerViewModel: ObservableObject {
 
     // MARK: - Track Identification Mode (Tracklist vs ACRCloud fingerprint)
     @Published var trackIdMode: TrackIdentificationMode = .tracklist
+    @Published var isIdentifying: Bool = false
+    @Published var acrToast: String? = nil
     private var fingerprinter: TrackFingerprinter?
+    private var toastTask: Task<Void, Never>?
 
     // MARK: - Browse / Favorites panel
     enum BrowseTab { case favorites, browse }
@@ -434,53 +437,67 @@ class PlayerViewModel: ObservableObject {
         isLoadingTracklist = false
     }
 
-    // MARK: - Track Identification Mode
+    // MARK: - One-shot ACR identification
 
-    /// Toggle between Tracklist API and ACRCloud fingerprinting.
-    /// Tracklist keeps running in either mode — ACR mode just overrides nowPlayingTitle
-    /// when it gets a high-confidence hit.
+    func identifyNow() {
+        guard !isIdentifying, case .radio(let station) = currentSource else { return }
+        guard let url = URL(string: station.streamURL) else { return }
+        let httpsURL = upgradeToHTTPS(url)
+        acrLog.debug("identifyNow: \(station.name, privacy: .public) url=\(httpsURL.absoluteString, privacy: .public)")
+        isIdentifying = true
+        stopFingerprinter()
+        let fp = TrackFingerprinter(streamURL: httpsURL)
+        fp.onResult = { [weak self] result in
+            guard let self else { return }
+            self.isIdentifying = false
+            acrLog.debug("identified '\(result.displayTitle, privacy: .public)' confidence=\(result.confidence)")
+            self.showToast("\(result.displayTitle) (\(result.confidence)%)")
+        }
+        fp.onError = { [weak self] msg in
+            guard let self else { return }
+            self.isIdentifying = false
+            acrLog.debug("identify error: \(msg, privacy: .public)")
+            let display = msg.contains("1001") || msg.contains("No match") ? "No match" : "No match"
+            self.showToast(display)
+        }
+        fingerprinter = fp
+        fp.identifyOnce()
+    }
+
+    private func showToast(_ message: String) {
+        toastTask?.cancel()
+        acrToast = message
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if !Task.isCancelled { acrToast = nil }
+        }
+    }
+
+    // MARK: - Track Identification Mode (legacy poll mode, kept for future use)
+
     func toggleTrackIdMode() {
         switch trackIdMode {
         case .tracklist:
             trackIdMode = .acr
             if case .radio(let station) = currentSource {
-                startFingerprinter(for: station)
-            } else {
-                NSLog("🎵 TrackFingerprinter: toggled ACR but currentSource is not radio: %@", String(describing: currentSource))
+                guard let url = URL(string: station.streamURL) else { return }
+                let fp = TrackFingerprinter(streamURL: upgradeToHTTPS(url))
+                fp.onResult = { [weak self] result in
+                    guard let self, self.trackIdMode == .acr else { return }
+                    self.nowPlayingTitle = result.displayTitle
+                    NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
+                }
+                fp.onError = { _ in }
+                fingerprinter = fp
+                fp.start()
             }
         case .acr:
             trackIdMode = .tracklist
             stopFingerprinter()
-            // Restore nowPlayingTitle from current tracklist (if any).
             if case .radio(let station) = currentSource {
                 refreshNowPlayingFromTracklist(for: station)
             }
         }
-    }
-
-    private func startFingerprinter(for station: RadioStation) {
-        stopFingerprinter()
-        acrLog.debug("startFingerprinter: \(station.name, privacy: .public) url=\(station.streamURL, privacy: .public)")
-        guard let url = URL(string: station.streamURL) else {
-            acrLog.error("bad streamURL: \(station.streamURL, privacy: .public)")
-            return
-        }
-        let fp = TrackFingerprinter(streamURL: upgradeToHTTPS(url))
-        fp.onResult = { [weak self] result in
-            guard let self, self.trackIdMode == .acr,
-                  case .radio(let current) = self.currentSource,
-                  current.id == station.id else { return }
-            self.nowPlayingTitle = result.displayTitle
-            NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
-            print("🎵 TrackFingerprinter: identified '\(result.displayTitle)' confidence=\(result.confidence)")
-        }
-        fp.onError = { [weak self] msg in
-            // Silently fall back — tracklist title remains visible.
-            print("🎵 TrackFingerprinter: \(msg)")
-            _ = self  // suppress warning
-        }
-        fingerprinter = fp
-        fp.start()
     }
 
     private func stopFingerprinter() {

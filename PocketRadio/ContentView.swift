@@ -238,6 +238,22 @@ struct ContentView: View {
         }
         .frame(width: 300, height: 380)
         .background(PocketCastsTheme.primaryUi01)
+        .overlay(acrToastOverlay, alignment: .bottom)
+    }
+
+    @ViewBuilder
+    private var acrToastOverlay: some View {
+        if let msg = vm.acrToast {
+            Text(msg)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.82)))
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeInOut(duration: 0.25), value: msg)
+        }
     }
 
     // MARK: - Scrub Bar
@@ -276,24 +292,25 @@ struct ContentView: View {
     // MARK: - Track Source Toggle (Tracklist ↔ ACR)
 
     private var trackSourceToggle: some View {
-        let isACR = vm.trackIdMode == .acr
+        let busy = vm.isIdentifying
         return Button(action: {
-            acrLog.debug("ACR button tapped — current mode: \(vm.trackIdMode == .acr ? "acr" : "tracklist", privacy: .public)")
-            vm.toggleTrackIdMode()
+            guard !busy else { return }
+            acrLog.debug("ACR identify tapped")
+            vm.identifyNow()
         }) {
-            Text(isACR ? "ACR" : "Tracklist")
+            Text(busy ? "Listening…" : "ACR")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isACR ? PocketCastsTheme.primaryUi01 : PocketCastsTheme.primaryText02)
+                .foregroundColor(busy ? PocketCastsTheme.primaryText02 : PocketCastsTheme.primaryUi01)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isACR ? PocketCastsTheme.accent : PocketCastsTheme.primaryUi04)
+                        .fill(busy ? PocketCastsTheme.primaryUi04 : PocketCastsTheme.accent)
                 )
         }
         .buttonStyle(.plain)
-        .help(isACR ? "Identifying via ACRCloud fingerprint — click to switch to Tracklist API"
-                    : "Using Tracklist API — click to switch to ACRCloud fingerprint")
+        .disabled(busy)
+        .help(busy ? "Listening to stream…" : "Identify current track via ACRCloud")
     }
 
     // MARK: - Artwork Pills

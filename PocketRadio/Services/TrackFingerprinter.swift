@@ -75,6 +75,14 @@ final class TrackFingerprinter {
         self.streamURL = streamURL
     }
 
+    /// One-shot: capture once and call onResult/onError exactly once.
+    func identifyOnce() {
+        stop()
+        pollTask = Task { [weak self] in
+            await self?.captureAndRecognize()
+        }
+    }
+
     func start() {
         stop()
         pollTask = Task { [weak self] in
@@ -107,24 +115,21 @@ final class TrackFingerprinter {
     private func captureAudioBytes() async -> Data? {
         var request = URLRequest(url: streamURL, timeoutInterval: 30)
         request.setValue("PocketRadio-Fingerprinter/1.0", forHTTPHeaderField: "User-Agent")
-        request.setValue("1", forHTTPHeaderField: "Icy-MetaData")
+        // Do NOT request ICY metadata — injected title chunks corrupt the audio fingerprint.
 
         do {
-            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+            let (asyncBytes, _) = try await URLSession.shared.bytes(for: request)
 
-            // Use icy-br to calculate exact byte target; fall back to 192kbps.
-            let bitrateKbps = (response as? HTTPURLResponse)?
-                .value(forHTTPHeaderField: "icy-br")
-                .flatMap(Int.init) ?? 192
-            let targetBytes = bitrateKbps * 1000 / 8 * Int(captureSeconds)
-
+            // Capture by wall-clock duration — avoids bitrate header guessing for
+            // MP3, AAC, and other formats where icy-br may be absent or wrong.
+            let deadline = Date().addingTimeInterval(captureSeconds)
             var data = Data()
-            data.reserveCapacity(targetBytes)
+            data.reserveCapacity(2_000_000)  // 2MB headroom
             for try await byte in asyncBytes {
                 data.append(byte)
-                if data.count >= targetBytes { break }
+                if Date() >= deadline { break }
             }
-            acrLog.debug("captured \(data.count) bytes (\(bitrateKbps)kbps × \(Int(self.captureSeconds))s)")
+            acrLog.debug("captured \(data.count) bytes in \(Int(self.captureSeconds))s")
             return data.isEmpty ? nil : data
         } catch {
             acrLog.error("capture error: \(error.localizedDescription, privacy: .public)")
@@ -181,8 +186,11 @@ final class TrackFingerprinter {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
+        acrLog.debug("posting \(audioData.count) audio bytes, body=\(body.count) total")
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? -1
+            acrLog.debug("ACR HTTP \(httpStatus), response \(data.count) bytes")
             guard let result = parseACRCloudResult(data) else {
                 if let raw = String(data: data, encoding: .utf8) {
                     await fireError("No match — \(raw)")
