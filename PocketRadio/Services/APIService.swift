@@ -174,6 +174,7 @@ struct UpNextEpisode: Equatable {
     let podcastUUID: String
     let playedUpTo: Int   // seconds of playback progress (from episodeSync)
     let duration: Int     // total duration in seconds (from episodeSync)
+    var published: Date? = nil  // release date (from up_next field 5 Timestamp)
 }
 
 // MARK: - Up Next API
@@ -331,7 +332,8 @@ extension PocketCastsAPI {
                     url: ep.url,
                     podcastUUID: ep.podcastUUID,
                     playedUpTo: sync.playedUpTo,
-                    duration: sync.duration
+                    duration: sync.duration,
+                    published: ep.published
                 )
             }
             print("🎵 PocketRadio:   NO SYNC for ep=\(ep.title.prefix(30)) uuid=\(ep.uuid)")
@@ -341,6 +343,7 @@ extension PocketCastsAPI {
 
     private static func decodeEpisodeResponse(_ data: Data) -> UpNextEpisode? {
         var title = "", url = "", podcast = "", uuid = ""
+        var published: Date? = nil
         var offset = 0
 
         while offset < data.count {
@@ -354,14 +357,15 @@ extension PocketCastsAPI {
                 let (length, vb) = decodeVarint(data, offset: offset)
                 offset += vb
                 guard offset + length <= data.count else { break }
-                let str = String(data: data[offset..<offset + length], encoding: .utf8) ?? ""
+                let bytes = Data(data[offset..<offset + length])
                 offset += length
 
                 switch fieldNumber {
-                case 1: title = str
-                case 2: url = str
-                case 3: podcast = str
-                case 4: uuid = str
+                case 1: title = String(data: bytes, encoding: .utf8) ?? ""
+                case 2: url = String(data: bytes, encoding: .utf8) ?? ""
+                case 3: podcast = String(data: bytes, encoding: .utf8) ?? ""
+                case 4: uuid = String(data: bytes, encoding: .utf8) ?? ""
+                case 5: published = decodeTimestamp(bytes)  // google.protobuf.Timestamp
                 default: break
                 }
             } else if wireType == 0 {
@@ -374,7 +378,33 @@ extension PocketCastsAPI {
 
         guard !uuid.isEmpty else { return nil }
         return UpNextEpisode(uuid: uuid, title: title, url: url, podcastUUID: podcast,
-                             playedUpTo: 0, duration: 0)
+                             playedUpTo: 0, duration: 0, published: published)
+    }
+
+    /// Decode a google.protobuf.Timestamp sub-message:
+    ///   field 1: seconds (int64 varint, since Unix epoch)
+    ///   field 2: nanos (int32 varint) — ignored
+    private static func decodeTimestamp(_ data: Data) -> Date? {
+        var seconds: Int? = nil
+        var offset = 0
+        while offset < data.count {
+            let tag = data[offset]
+            let fieldNumber = Int(tag >> 3)
+            let wireType = Int(tag & 0x07)
+            offset += 1
+            if wireType == 0 {
+                let (value, vb) = decodeVarint(data, offset: offset)
+                offset += vb
+                if fieldNumber == 1 { seconds = value }
+            } else if wireType == 2 {
+                let (length, vb) = decodeVarint(data, offset: offset)
+                offset += vb + length
+            } else {
+                break
+            }
+        }
+        guard let s = seconds, s > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(s))
     }
 
     /// Decode a Google_Protobuf_Int32Value wrapper. Returns the inner int32 value.
@@ -690,6 +720,44 @@ extension PocketCastsAPI {
         default: throw LoginError.badResponse
         }
     }
+
+    /// Send a "remove" action (action=4) to remove the episode from the user's
+    /// Up Next queue. Mirrors iOS UpNextChanges.Actions.remove.
+    static func removeEpisodeAction(token: String, episode: UpNextEpisode) async throws {
+        guard let url = URL(string: apiBase + upNextPath) else { throw LoginError.unknown }
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+        let deviceID = getOrCreateDeviceID()
+
+        // Change: uuid(1), action(2)=4, modified(3). Title/url/podcast optional but include
+        // to match the playNow encoding shape iOS sends.
+        let change = encodeField(1, episode.uuid)
+                   + encodeVarintField(2, 4)              // remove
+                   + encodeVarintField(3, nowMillis)
+                   + encodeField(4, episode.title)
+                   + encodeField(5, episode.url)
+                   + encodeField(6, episode.podcastUUID)
+        let upNextChanges = encodeLengthDelimitedField(2, change)
+        let body = encodeVarintField(1, nowMillis)
+                 + encodeField(2, "2")
+                 + encodeLengthDelimitedField(4, upNextChanges)
+                 + encodeField(6, deviceID)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LoginError.badResponse }
+        switch http.statusCode {
+        case 200: return
+        case 401: throw LoginError.invalidCredentials
+        default: throw LoginError.badResponse
+        }
+    }
 }
 
 // MARK: - Radio Station Model
@@ -699,6 +767,14 @@ struct RadioStation: Identifiable, Equatable {
     let name: String
     let streamURL: String
     let logoURL: String?
+    // Extra metadata from radio-browser (shown in hover detail card)
+    var country: String? = nil
+    var language: String? = nil
+    var tags: String? = nil
+    var codec: String? = nil
+    var bitrate: Int? = nil
+    var votes: Int? = nil
+    var homepage: String? = nil
 
     static func == (lhs: RadioStation, rhs: RadioStation) -> Bool {
         lhs.id == rhs.id
@@ -791,13 +867,21 @@ extension PocketCastsAPI {
         struct StationResponse: Decodable {
             let name: String?
             let url: String?
+            let url_resolved: String?
             let favicon: String?
+            let country: String?
+            let language: String?
+            let tags: String?
+            let codec: String?
+            let bitrate: Int?
+            let votes: Int?
+            let homepage: String?
         }
 
         let stations = try JSONDecoder().decode([StationResponse].self, from: data)
         guard let station = stations.first,
               let name = station.name,
-              let streamURL = station.url else {
+              let streamURL = station.url_resolved ?? station.url else {
             return nil
         }
 
@@ -805,8 +889,97 @@ extension PocketCastsAPI {
             id: uuid,
             name: name,
             streamURL: streamURL,
-            logoURL: station.favicon
+            logoURL: station.favicon,
+            country: station.country,
+            language: station.language,
+            tags: station.tags,
+            codec: station.codec,
+            bitrate: station.bitrate,
+            votes: station.votes,
+            homepage: station.homepage
         )
+    }
+}
+
+// MARK: - User Settings (read-only: skip amounts)
+
+struct SkipSettings: Equatable {
+    let back: Int       // seconds
+    let forward: Int    // seconds
+}
+
+extension PocketCastsAPI {
+    private static let namedSettingsPath = "/user/named_settings/update"
+
+    /// Read the user's synced skip amounts. The `named_settings/update` endpoint
+    /// returns the server's *current* settings even when the request carries no
+    /// settings to change — so by sending only the device field (no `settings`
+    /// or `changedSettings`) this is effectively read-only; nothing is written.
+    ///   Request  Api_NamedSettingsRequest  { m(2) = string }
+    ///   Response Api_NamedSettingsResponse { skipForward(5), skipBack(6) }
+    ///     each Api_Int32Setting { value(1) = Int32Value }, Int32Value { value(1) = int32 }
+    static func fetchSkipSettings(token: String) async -> SkipSettings? {
+        guard let url = URL(string: apiBase + namedSettingsPath) else { return nil }
+        let body = encodeField(2, "PocketRadio")  // m = device; no settings → read-only
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = body
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                print("🎵 PocketRadio: named_settings HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return nil
+            }
+            let forward = decodeInt32Setting(in: data, fieldNumber: 5)
+            let back = decodeInt32Setting(in: data, fieldNumber: 6)
+            guard back != nil || forward != nil else {
+                print("🎵 PocketRadio: named_settings returned no skip values")
+                return nil
+            }
+            print("🎵 PocketRadio: skip settings back=\(back ?? -1)s forward=\(forward ?? -1)s")
+            return SkipSettings(back: back ?? 10, forward: forward ?? 45)
+        } catch {
+            print("🎵 PocketRadio: named_settings fetch failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Top-level `fieldNumber` is an Api_Int32Setting submessage; unwrap its
+    /// inner Int32Value (field 1) and return the int.
+    private static func decodeInt32Setting(in data: Data, fieldNumber target: Int) -> Int? {
+        guard let settingBytes = firstSubmessage(in: data, fieldNumber: target),
+              let valueBytes = firstSubmessage(in: settingBytes, fieldNumber: 1) else { return nil }
+        return decodeInt32Value(valueBytes)
+    }
+
+    /// Bytes of the first length-delimited (wire type 2) field matching
+    /// `fieldNumber`. Skips other fields by wire type.
+    private static func firstSubmessage(in data: Data, fieldNumber target: Int) -> Data? {
+        var offset = 0
+        while offset < data.count {
+            let tag = Int(data[offset]); offset += 1
+            let field = tag >> 3
+            let wire = tag & 0x07
+            switch wire {
+            case 0:
+                let (_, vb) = decodeVarint(data, offset: offset); offset += vb
+            case 2:
+                let (len, vb) = decodeVarint(data, offset: offset); offset += vb
+                guard offset + len <= data.count else { return nil }
+                if field == target { return Data(data[offset..<offset + len]) }
+                offset += len
+            case 1: offset += 8   // 64-bit
+            case 5: offset += 4   // 32-bit
+            default: return nil
+            }
+        }
+        return nil
     }
 }
 
@@ -1009,6 +1182,71 @@ extension PocketCastsAPI {
     }
 }
 
+// MARK: - Episode Show Notes (description)
+
+struct EpisodeShowNotes: Equatable {
+    let description: String   // plain text, HTML stripped
+    let imageURL: String?
+}
+
+extension PocketCastsAPI {
+    /// Fetch show notes (description + image) for one episode. The cache server
+    /// returns notes for the whole podcast keyed by episode uuid:
+    ///   GET cache.pocketcasts.com/mobile/show_notes/full/<podcastUuid>
+    ///   → { podcast: { episodes: [ { uuid, show_notes, image } ] } }
+    static func fetchEpisodeShowNotes(podcastUUID: String, episodeUUID: String) async -> EpisodeShowNotes? {
+        guard !podcastUUID.isEmpty,
+              let url = URL(string: "\(cacheBase)/mobile/show_notes/full/\(podcastUUID)") else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("PocketRadio/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        struct Response: Decodable {
+            struct Podcast: Decodable { let episodes: [Episode]? }
+            struct Episode: Decodable {
+                let uuid: String
+                let showNotes: String?
+                let image: String?
+            }
+            let podcast: Podcast?
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let resp = try decoder.decode(Response.self, from: data)
+            guard let ep = resp.podcast?.episodes?.first(where: { $0.uuid == episodeUUID }) else { return nil }
+            let text = htmlToPlainText(ep.showNotes ?? "")
+            return EpisodeShowNotes(description: text, imageURL: ep.image)
+        } catch {
+            print("🎵 PocketRadio: show notes fetch failed for \(episodeUUID): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Crude HTML → plain text: drop tags, decode a few common entities,
+    /// collapse whitespace. Good enough for a hover preview.
+    private static func htmlToPlainText(_ html: String) -> String {
+        var s = html
+        // Turn block-level breaks into newlines before stripping tags.
+        for tag in ["<br>", "<br/>", "<br />", "</p>", "</div>", "</li>"] {
+            s = s.replacingOccurrences(of: tag, with: "\n", options: .caseInsensitive)
+        }
+        // Strip remaining tags.
+        s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        // Decode common entities.
+        let entities = ["&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"",
+                        "&#39;": "'", "&apos;": "'", "&nbsp;": " ", "&hellip;": "…"]
+        for (k, v) in entities { s = s.replacingOccurrences(of: k, with: v) }
+        // Collapse 3+ newlines to 2, trim trailing spaces per line.
+        s = s.replacingOccurrences(of: "[ \\t]+\\n", with: "\n", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 // MARK: - Radio Browser browse + search + favorite mutations
 
 extension PocketCastsAPI {
@@ -1044,6 +1282,13 @@ extension PocketCastsAPI {
             let name: String?
             let url_resolved: String?
             let favicon: String?
+            let country: String?
+            let language: String?
+            let tags: String?
+            let codec: String?
+            let bitrate: Int?
+            let votes: Int?
+            let homepage: String?
         }
         let rows = try JSONDecoder().decode([Row].self, from: data)
         return rows.compactMap { row in
@@ -1053,7 +1298,14 @@ extension PocketCastsAPI {
                 id: row.stationuuid,
                 name: name,
                 streamURL: stream,
-                logoURL: row.favicon
+                logoURL: row.favicon,
+                country: row.country,
+                language: row.language,
+                tags: row.tags,
+                codec: row.codec,
+                bitrate: row.bitrate,
+                votes: row.votes,
+                homepage: row.homepage
             )
         }
     }
@@ -1160,12 +1412,54 @@ extension PocketCastsAPI {
                 return []
             }
             let name = station.name.lowercased()
-            if name.contains("kcrw") { return parseKCRW(data) }
-            if name.contains("kexp") { return parseKEXP(data) }
-            return []
+            var entries: [TracklistEntry] = []
+            if name.contains("kcrw") { entries = parseKCRW(data) }
+            else if name.contains("kexp") { entries = parseKEXP(data) }
+            return await fillMissingArtwork(entries)
         } catch {
             print("🎵 PocketRadio: tracklist fetch failed for \(station.name): \(error.localizedDescription)")
             return []
+        }
+    }
+
+    /// For any entry with no albumArtURL, fire an iTunes Search lookup concurrently.
+    private static func fillMissingArtwork(_ entries: [TracklistEntry]) async -> [TracklistEntry] {
+        guard entries.contains(where: { $0.albumArtURL == nil }) else { return entries }
+        return await withTaskGroup(of: (Int, URL?).self) { group in
+            for (i, entry) in entries.enumerated() {
+                guard entry.albumArtURL == nil else { continue }
+                group.addTask { (i, await iTunesArtwork(artist: entry.artist, title: entry.title)) }
+            }
+            var results = entries
+            for await (i, url) in group {
+                if let url {
+                    let e = results[i]
+                    results[i] = TracklistEntry(title: e.title, artist: e.artist,
+                                                album: e.album, albumArtURL: url,
+                                                playedAt: e.playedAt)
+                }
+            }
+            return results
+        }
+    }
+
+    /// iTunes Search fallback — returns a 600×600 art URL or nil.
+    private static func iTunesArtwork(artist: String, title: String) async -> URL? {
+        let query = "\(artist) \(title)"
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let url = URL(string: "https://itunes.apple.com/search?term=\(query)&media=music&entity=song&limit=3") else { return nil }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let results = json["results"] as? [[String: Any]],
+                  let first = results.first,
+                  let art = first["artworkUrl100"] as? String else { return nil }
+            // Upgrade to 600×600
+            let large = art.replacingOccurrences(of: "/100x100bb.", with: "/600x600bb.")
+            print("🎵 PocketRadio: iTunes art fallback for '\(title)': \(large)")
+            return URL(string: large)
+        } catch {
+            return nil
         }
     }
 
