@@ -8,6 +8,9 @@
 import Foundation
 import AVFoundation
 import Combine
+import OSLog
+
+private let acrLog = Logger(subsystem: "com.jdj.pocketradio", category: "ACR")
 
 // MARK: - Pill Type
 
@@ -442,6 +445,8 @@ class PlayerViewModel: ObservableObject {
             trackIdMode = .acr
             if case .radio(let station) = currentSource {
                 startFingerprinter(for: station)
+            } else {
+                NSLog("🎵 TrackFingerprinter: toggled ACR but currentSource is not radio: %@", String(describing: currentSource))
             }
         case .acr:
             trackIdMode = .tracklist
@@ -455,7 +460,11 @@ class PlayerViewModel: ObservableObject {
 
     private func startFingerprinter(for station: RadioStation) {
         stopFingerprinter()
-        guard let url = URL(string: station.streamURL) else { return }
+        acrLog.debug("startFingerprinter: \(station.name, privacy: .public) url=\(station.streamURL, privacy: .public)")
+        guard let url = URL(string: station.streamURL) else {
+            acrLog.error("bad streamURL: \(station.streamURL, privacy: .public)")
+            return
+        }
         let fp = TrackFingerprinter(streamURL: upgradeToHTTPS(url))
         fp.onResult = { [weak self] result in
             guard let self, self.trackIdMode == .acr,

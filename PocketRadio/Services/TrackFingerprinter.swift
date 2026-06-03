@@ -15,6 +15,9 @@
 
 import CryptoKit
 import Foundation
+import OSLog
+
+private let acrLog = Logger(subsystem: "com.jdj.pocketradio", category: "ACR")
 
 // MARK: - Mode
 
@@ -121,10 +124,10 @@ final class TrackFingerprinter {
                 data.append(byte)
                 if data.count >= targetBytes { break }
             }
-            print("🎵 TrackFingerprinter: captured \(data.count) bytes (\(bitrateKbps)kbps × \(Int(captureSeconds))s)")
+            acrLog.debug("captured \(data.count) bytes (\(bitrateKbps)kbps × \(Int(self.captureSeconds))s)")
             return data.isEmpty ? nil : data
         } catch {
-            print("🎵 TrackFingerprinter: capture error: \(error)")
+            acrLog.error("capture error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -137,15 +140,17 @@ final class TrackFingerprinter {
             return
         }
 
-        let timestamp = String(Date().timeIntervalSince1970)
+        let timestamp = String(Int(Date().timeIntervalSince1970))
         let httpURI = "/v1/identify"
         let stringToSign = ["POST", httpURI, creds.accessKey, "audio", "1", timestamp]
             .joined(separator: "\n")
 
+        acrLog.debug("ts=\(timestamp, privacy: .public) key=\(creds.accessKey, privacy: .public) secret.count=\(creds.accessSecret.count)")
         let key = SymmetricKey(data: Data(creds.accessSecret.utf8))
         let mac = HMAC<Insecure.SHA1>.authenticationCode(
             for: Data(stringToSign.utf8), using: key)
         let signature = Data(mac).base64EncodedString()
+        acrLog.debug("signature: \(signature, privacy: .public)")
 
         let boundary = "PocketRadioACR\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var body = Data()
@@ -227,7 +232,7 @@ final class TrackFingerprinter {
     }
 
     private func fireError(_ message: String) async {
-        print("🎵 TrackFingerprinter: \(message)")
+        acrLog.debug("\(message, privacy: .public)")
         await MainActor.run { onError?(message) }
     }
 }

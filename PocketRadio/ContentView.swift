@@ -5,7 +5,10 @@
 //  M6.2.5: Pocket Casts dark theme styling + time-remaining visibility.
 //
 
+import OSLog
 import SwiftUI
+
+private let acrLog = Logger(subsystem: "com.jdj.pocketradio", category: "ACR")
 
 struct ContentView: View {
 
@@ -274,7 +277,10 @@ struct ContentView: View {
 
     private var trackSourceToggle: some View {
         let isACR = vm.trackIdMode == .acr
-        return Button(action: { vm.toggleTrackIdMode() }) {
+        return Button(action: {
+            acrLog.debug("ACR button tapped — current mode: \(vm.trackIdMode == .acr ? "acr" : "tracklist", privacy: .public)")
+            vm.toggleTrackIdMode()
+        }) {
             Text(isACR ? "ACR" : "Tracklist")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(isACR ? PocketCastsTheme.primaryUi01 : PocketCastsTheme.primaryText02)
