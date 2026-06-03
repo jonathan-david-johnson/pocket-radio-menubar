@@ -4,19 +4,16 @@
 //
 //  Captures ~15s of audio from the live stream URL (separate connection — no
 //  AVPlayer tapping required) and sends the raw bytes to ACRCloud for
-//  fingerprint-based track identification.
+//  fingerprint-based track identification via the REST Identification API.
 //
 //  Usage:
-//    1. Set TrackFingerprinter.credentials at app startup (once creds are ready).
+//    1. Set TrackFingerprinter.credentials at app startup.
 //    2. Call start(streamURL:) when a live stream begins.
 //    3. Observe onResult / onError callbacks on the main actor.
 //    4. Call stop() when the stream stops or the user toggles back to Tracklist mode.
 //
-//  ACRCloud SDK integration is stubbed — see recognize(audioData:) below.
-//  When the SDK is added to the project, uncomment the marked block and
-//  delete the "SDK not integrated" error path.
-//
 
+import CryptoKit
 import Foundation
 
 // MARK: - Mode
@@ -140,42 +137,63 @@ final class TrackFingerprinter {
             return
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        // TODO: Replace this stub once ACRCloudSDK.xcframework is added to the
-        //       Xcode project (drag into Frameworks, General → Embed & Sign).
-        //
-        // 1. Add to Podfile or drag in the .xcframework from acrcloud.com.
-        // 2. Add to Info.plist if needed: NSMicrophoneUsageDescription (even for
-        //    file-based recognition on some SDK versions).
-        // 3. Uncomment and delete the fireError call below:
-        //
-        //   import ACRCloudSDK
-        //
-        //   let config = ACRCloudConfig()
-        //   config.host           = creds.host
-        //   config.accessKey      = creds.accessKey
-        //   config.accessSecret   = creds.accessSecret
-        //   config.recMode        = .remoteRecognize  // no mic
-        //
-        //   let recognizer = ACRCloudRecognizer(config: config)
-        //   // recognizeWithAudio accepts raw MP3/AAC bytes (not just PCM)
-        //   let jsonStr = recognizer.recognizeWithAudio(audioData, withPCMSampleRate: 0)
-        //   guard let jsonStr,
-        //         let jsonData = jsonStr.data(using: .utf8),
-        //         let result = parseACRCloudResult(jsonData) else {
-        //       await fireError("No match or parse error")
-        //       return
-        //   }
-        //   if result.confidence >= minConfidence {
-        //       await fireResult(result)
-        //   } else {
-        //       await fireError("Low confidence: \(result.confidence) for \(result.title)")
-        //   }
-        //
-        // ─────────────────────────────────────────────────────────────────────
+        let timestamp = String(Date().timeIntervalSince1970)
+        let httpURI = "/v1/identify"
+        let stringToSign = ["POST", httpURI, creds.accessKey, "audio", "1", timestamp]
+            .joined(separator: "\n")
 
-        _ = creds  // suppress unused warning until stub is replaced
-        await fireError("ACRCloud SDK not yet integrated — add ACRCloudSDK.xcframework and uncomment TrackFingerprinter.recognize()")
+        let key = SymmetricKey(data: Data(creds.accessSecret.utf8))
+        let mac = HMAC<Insecure.SHA1>.authenticationCode(
+            for: Data(stringToSign.utf8), using: key)
+        let signature = Data(mac).base64EncodedString()
+
+        let boundary = "PocketRadioACR\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var body = Data()
+
+        func field(_ name: String, _ value: String) {
+            body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n"
+                .data(using: .utf8)!
+        }
+
+        field("access_key", creds.accessKey)
+        field("sample_bytes", String(audioData.count))
+        field("timestamp", timestamp)
+        field("signature", signature)
+        field("data_type", "audio")
+        field("signature_version", "1")
+
+        body += "--\(boundary)\r\nContent-Disposition: form-data; name=\"sample\"; filename=\"sample.mp3\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+            .data(using: .utf8)!
+        body += audioData
+        body += "\r\n--\(boundary)--\r\n".data(using: .utf8)!
+
+        guard let url = URL(string: "https://\(creds.host)\(httpURI)") else {
+            await fireError("Invalid ACRCloud host: \(creds.host)")
+            return
+        }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let result = parseACRCloudResult(data) else {
+                if let raw = String(data: data, encoding: .utf8) {
+                    await fireError("No match — \(raw)")
+                } else {
+                    await fireError("No match")
+                }
+                return
+            }
+            if result.confidence >= minConfidence {
+                await fireResult(result)
+            } else {
+                await fireError("Low confidence (\(result.confidence)) for \(result.title)")
+            }
+        } catch {
+            await fireError("Network error: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - JSON parsing

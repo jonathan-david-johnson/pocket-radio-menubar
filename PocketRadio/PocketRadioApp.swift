@@ -37,6 +37,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🎵 PocketRadio: Launching menubar app")
 
+        TrackFingerprinter.credentials = ACRCloudCredentials(
+            host: "identify-us-west-2.acrcloud.com",
+            accessKey: "69df99de909bfee94d568df3a286ef7a",
+            accessSecret: "33FF4Z7ZOizLNjLLRoZLuQKKwSNsNII0i0hsGilJ"
+        )
+
         self.playerVM = PlayerViewModel()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
