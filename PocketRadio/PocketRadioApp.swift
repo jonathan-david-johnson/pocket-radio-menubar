@@ -31,6 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // edges line up exactly with the dark content (no grey strips above/below).
     private let panelSize = NSSize(width: 300, height: 380)
     private var outsideClickMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -64,6 +65,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         hosting.layer?.cornerRadius = 8
         hosting.layer?.masksToBounds = true
         panel.contentView = hosting
+
+        // Bind the panel (and therefore its NSHostingView) to follow the
+        // app's effective appearance so dynamic NSColors re-resolve when the
+        // OS Light/Dark setting flips at any time, including after relaunch.
+        panel.appearance = NSApp.effectiveAppearance
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] app, _ in
+            DispatchQueue.main.async {
+                self?.panel.appearance = app.effectiveAppearance
+            }
+        }
 
         // Observe playback changes to update menubar title
         NotificationCenter.default.addObserver(
@@ -139,13 +150,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         guard let button = statusItem.button else { return }
 
         if playerVM.isPlaying {
-            let title = "▶ " + playerVM.nowPlayingTitle
+            let title = playerVM.nowPlayingTitle
             button.image = nil
-            statusItem.length = playingStatusLength
+            button.imagePosition = .noImage
 
             if title.count <= maxTitleLength {
+                statusItem.length = NSStatusItem.variableLength
                 button.attributedTitle = menuBarAttributedString(title)
             } else {
+                statusItem.length = playingStatusLength
                 scrollTask = Task { await scrollTitle(title) }
             }
         } else {
@@ -179,11 +192,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .center
         paragraphStyle.lineBreakMode = .byClipping
+        paragraphStyle.maximumLineHeight = 14
+        paragraphStyle.minimumLineHeight = 14
 
         return NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 11),
+            .font: NSFont.menuBarFont(ofSize: 12),
             .paragraphStyle: paragraphStyle,
-            .baselineOffset: 0
+            .baselineOffset: 1
         ])
     }
 

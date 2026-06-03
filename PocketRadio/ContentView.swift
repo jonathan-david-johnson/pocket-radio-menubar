@@ -253,7 +253,7 @@ struct ContentView: View {
     /// http-only, etc). Returns nil to fall back to remote/text logo.
     private func bundledLogoAsset(for station: RadioStation) -> String? {
         let name = station.name.lowercased()
-        if name.contains("kcrw") { return "KCRW_logo_white" }
+        if name.contains("kcrw") { return "kcrw_logo" }
         if name.contains("kexp") { return "KEXP_logo" }
         return nil
     }

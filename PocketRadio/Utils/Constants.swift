@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 enum Constants {
     static let streamURL = URL(string: "https://streams.kcrw.com/e24_mp3")
@@ -48,14 +49,46 @@ extension Color {
     }
 }
 
-// MARK: - Pocket Casts Dark Theme
+// MARK: - Pocket Casts Theme (light + dark adaptive)
+//
+// Hex values mirror iOS ThemeColor's Light and Dark variants. Each color is
+// backed by an NSColor with a dynamic provider so it follows the OS-level
+// appearance setting (System Settings → Appearance: Light / Dark / Auto).
 
 enum PocketCastsTheme {
-    static let primaryUi01    = Color(hex: "#292B2E") // main background
-    static let primaryUi04    = Color(hex: "#161718") // card / darker surface
-    static let primaryUi05    = Color(hex: "#393A3C") // dividers
-    static let primaryText01  = Color(hex: "#FFFFFF") // primary text
-    static let primaryText02  = Color(hex: "#9C9FA4") // muted text
-    static let primaryIcon02  = Color(hex: "#8F97A4") // inactive icons
-    static let accent         = Color(hex: "#F44336") // interactive / selected
+    static let primaryUi01    = dynamic(light: "#FFFFFF", dark: "#292B2E") // main background
+    static let primaryUi04    = dynamic(light: "#F7F9FA", dark: "#161718") // card / surface
+    static let primaryUi05    = dynamic(light: "#E0E6EA", dark: "#393A3C") // dividers
+    static let primaryText01  = dynamic(light: "#292B2E", dark: "#FFFFFF") // primary text
+    static let primaryText02  = dynamic(light: "#8F97A4", dark: "#9C9FA4") // muted text
+    static let primaryIcon02  = dynamic(light: "#B8C3C9", dark: "#8F97A4") // inactive icons
+    static let accent         = dynamic(light: "#F43E37", dark: "#F44336") // interactive / selected
+
+    private static func dynamic(light: String, dark: String) -> Color {
+        Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .vibrantDark, .accessibilityHighContrastDarkAqua, .accessibilityHighContrastVibrantDark]) != nil
+            return NSColor.fromHex(isDark ? dark : light)
+        }))
+    }
+}
+
+private extension NSColor {
+    /// Lenient hex parser; mirrors the SwiftUI Color(hex:) extension above so the
+    /// theme can be authored as hex strings exactly like the iOS palette.
+    static func fromHex(_ hex: String) -> NSColor {
+        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        var rgb: UInt64 = 0
+        Scanner(string: s).scanHexInt64(&rgb)
+        let r, g, b, a: UInt64
+        switch s.count {
+        case 6:
+            (a, r, g, b) = (255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
+        case 8:
+            (a, r, g, b) = ((rgb >> 24) & 0xFF, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        return NSColor(srgbRed: CGFloat(r)/255, green: CGFloat(g)/255, blue: CGFloat(b)/255, alpha: CGFloat(a)/255)
+    }
 }
