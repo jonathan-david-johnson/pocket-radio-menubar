@@ -12,6 +12,17 @@ struct ContentView: View {
     @StateObject private var vm: PlayerViewModel
     @State private var isLoggingIn = false
 
+    /// A list item whose detail panel can be opened.
+    enum DetailItem: Equatable {
+        case episode(UpNextEpisode)
+        case release(NewReleaseEpisode)
+        case station(RadioStation)
+    }
+    /// Row currently under the cursor — reveals its ⓘ button.
+    @State private var hoveredRowID: String? = nil
+    /// Explicitly-opened detail panel (via ⓘ). Persists until closed.
+    @State private var detailItem: DetailItem? = nil
+
     init(vm: PlayerViewModel) {
         self._vm = StateObject(wrappedValue: vm)
     }
@@ -83,8 +94,18 @@ struct ContentView: View {
 
     var mainView: some View {
         VStack(spacing: 0) {
-            // ── Top Row: Artwork Pills ──
+            // ── Top Row: refresh | 4 artwork pills | menu ──
             HStack(spacing: 0) {
+                Button(action: { Task { await vm.refreshActiveSection() } }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(PocketCastsTheme.primaryIcon02)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("r")
+
+                Spacer()
                 podcastArtworkPill
                 Spacer()
                 streamArtworkPill(0)
@@ -94,12 +115,12 @@ struct ContentView: View {
                 streamArtworkPill(2)
                 Spacer()
 
-                // ⋮ browse button
                 Button(action: { vm.toggleBrowse() }) {
                     Image(systemName: "ellipsis")
+                        .rotationEffect(.degrees(90))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(vm.showBrowseTabs ? PocketCastsTheme.accent : PocketCastsTheme.primaryIcon02)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
             }
@@ -117,7 +138,7 @@ struct ContentView: View {
                 if vm.showSkipControls {
                     Button(action: { vm.skipBack() }) {
                         VStack(spacing: 0) {
-                            Image(systemName: "gobackward.10")
+                            Image(systemName: "gobackward")
                                 .font(.system(size: 18))
                             Text("\(Int(vm.skipBackSeconds))s")
                                 .font(.system(size: 8))
@@ -136,11 +157,11 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 8)
 
-                // Skip Forward
+                // Skip Forward — or Track Source Toggle for live streams
                 if vm.showSkipControls {
                     Button(action: { vm.skipForward() }) {
                         VStack(spacing: 0) {
-                            Image(systemName: "goforward.45")
+                            Image(systemName: "goforward")
                                 .font(.system(size: 18))
                             Text("\(Int(vm.skipForwardSeconds))s")
                                 .font(.system(size: 8))
@@ -148,36 +169,52 @@ struct ContentView: View {
                         .foregroundColor(PocketCastsTheme.primaryIcon02)
                     }
                     .buttonStyle(.plain)
+                } else if vm.showTrackSourceToggle {
+                    trackSourceToggle
                 }
             }
             .padding(.vertical, 10)
+
+            // ── Scrub Bar (seekable content only) ──
+            if vm.showSkipControls && vm.currentSource != nil {
+                scrubBar
+            }
 
             Rectangle()
                 .fill(PocketCastsTheme.primaryUi05)
                 .frame(height: 1)
 
-            // ── Bottom Section ──
-            if vm.showBrowseTabs {
-                browsePlaceholder
-            } else if vm.selectedPill == .podcast {
-                podcastTabsSection
-            } else if !vm.tracklist.isEmpty {
-                tracklistView
-            } else if vm.isLoadingTracklist {
-                HStack {
-                    Spacer()
-                    ProgressView().scaleEffect(0.7)
-                    Text("Loading tracklist...")
-                        .font(.system(size: 13))
-                        .foregroundColor(PocketCastsTheme.primaryText02)
-                    Spacer()
+            // ── Bottom Section (with hover-detail overlay) ──
+            ZStack {
+                VStack(spacing: 0) {
+                    if vm.showBrowseTabs {
+                        browsePlaceholder
+                    } else if vm.selectedPill == .podcast {
+                        podcastTabsSection
+                    } else if !vm.tracklist.isEmpty {
+                        tracklistView
+                    } else if vm.isLoadingTracklist {
+                        HStack {
+                            Spacer()
+                            ProgressView().scaleEffect(0.7)
+                            Text("Loading tracklist...")
+                                .font(.system(size: 13))
+                                .foregroundColor(PocketCastsTheme.primaryText02)
+                            Spacer()
+                        }
+                        .padding(.vertical, 20)
+                        Spacer()
+                    } else {
+                        nowPlayingInfo
+                        Spacer()
+                    }
                 }
-                .padding(.vertical, 20)
-                Spacer()
-            } else {
-                nowPlayingInfo
-                Spacer()
+
+                if let detail = detailItem {
+                    detailCard(detail)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // ── Footer ──
             HStack(spacing: 16) {
@@ -198,6 +235,59 @@ struct ContentView: View {
         }
         .frame(width: 300, height: 380)
         .background(PocketCastsTheme.primaryUi01)
+    }
+
+    // MARK: - Scrub Bar
+
+    var scrubBar: some View {
+        let duration = max(vm.durationSeconds, 0)
+        let remaining = max(0, duration - vm.currentTimeSeconds)
+        return VStack(spacing: 2) {
+            Slider(
+                value: Binding(
+                    get: { vm.currentTimeSeconds },
+                    set: { vm.currentTimeSeconds = $0 }
+                ),
+                in: 0...max(duration, 1),
+                onEditingChanged: { editing in
+                    vm.isScrubbing = editing
+                    if !editing { vm.scrub(toSeconds: vm.currentTimeSeconds) }
+                }
+            )
+            .controlSize(.mini)
+            .tint(PocketCastsTheme.accent)
+            .disabled(duration <= 0)
+
+            HStack {
+                Text(vm.clockTime(vm.currentTimeSeconds))
+                Spacer()
+                Text("-\(vm.clockTime(remaining))")
+            }
+            .font(.system(size: 10).monospacedDigit())
+            .foregroundColor(PocketCastsTheme.primaryText02)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Track Source Toggle (Tracklist ↔ ACR)
+
+    private var trackSourceToggle: some View {
+        let isACR = vm.trackIdMode == .acr
+        return Button(action: { vm.toggleTrackIdMode() }) {
+            Text(isACR ? "ACR" : "Tracklist")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isACR ? PocketCastsTheme.primaryUi01 : PocketCastsTheme.primaryText02)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isACR ? PocketCastsTheme.accent : PocketCastsTheme.primaryUi04)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(isACR ? "Identifying via ACRCloud fingerprint — click to switch to Tracklist API"
+                    : "Using Tracklist API — click to switch to ACRCloud fingerprint")
     }
 
     // MARK: - Artwork Pills
@@ -253,7 +343,7 @@ struct ContentView: View {
     /// http-only, etc). Returns nil to fall back to remote/text logo.
     private func bundledLogoAsset(for station: RadioStation) -> String? {
         let name = station.name.lowercased()
-        if name.contains("kcrw") { return "KCRW_logo_white" }
+        if name.contains("kcrw") { return "kcrw_logo" }
         if name.contains("kexp") { return "KEXP_logo" }
         return nil
     }
@@ -292,19 +382,15 @@ struct ContentView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            ZStack {
-                Rectangle().fill(PocketCastsTheme.primaryUi04)
-                Image(imageName)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(4)
-            }
-            .frame(width: pillSize, height: pillSize)
-            .clipShape(RoundedRectangle(cornerRadius: pillCorner))
-            .overlay(
-                RoundedRectangle(cornerRadius: pillCorner)
-                    .stroke(PocketCastsTheme.accent, lineWidth: isSelected ? 2 : 0)
-            )
+            Image(imageName)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: pillSize, height: pillSize)
+                .clipShape(RoundedRectangle(cornerRadius: pillCorner))
+                .overlay(
+                    RoundedRectangle(cornerRadius: pillCorner)
+                        .stroke(PocketCastsTheme.accent, lineWidth: isSelected ? 2 : 0)
+                )
         }
         .buttonStyle(.plain)
     }
@@ -404,7 +490,12 @@ struct ContentView: View {
             } else {
                 newReleasesView
             }
+
+            // Push everything up so the outer VStack doesn't center this when
+            // the active tab's content is short (e.g. loading state).
+            Spacer(minLength: 0)
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func podcastTabButton(_ label: String, tab: PlayerViewModel.PodcastTab) -> some View {
@@ -466,15 +557,27 @@ struct ContentView: View {
                         .font(.system(size: 12))
                         .foregroundColor(PocketCastsTheme.primaryText02)
                         .lineLimit(1)
+                    let dateText = vm.relativePublishedText(for: release.published)
+                    if !dateText.isEmpty {
+                        Text(dateText)
+                            .font(.system(size: 11))
+                            .foregroundColor(PocketCastsTheme.primaryText02)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
+
+                if hoveredRowID == release.uuid {
+                    infoButton { detailItem = .release(release) }
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { inside in setRowHover(release.uuid, inside) }
     }
 
     var upNextListView: some View {
@@ -542,17 +645,34 @@ struct ContentView: View {
                             .foregroundColor(PocketCastsTheme.primaryText01)
                             .lineLimit(1)
 
+                        let dateText = vm.relativePublishedText(for: episode.published)
                         let timeText = vm.timeRemainingText(for: episode)
-                        Text(timeText.isEmpty ? episode.podcastUUID : timeText)
-                            .font(.system(size: 13))
-                            .foregroundColor(PocketCastsTheme.primaryText02)
-                            .lineLimit(1)
+                        if dateText.isEmpty && timeText.isEmpty {
+                            Text(episode.podcastUUID)
+                                .font(.system(size: 13))
+                                .foregroundColor(PocketCastsTheme.primaryText02)
+                                .lineLimit(1)
+                        } else {
+                            if !dateText.isEmpty {
+                                Text(dateText)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(PocketCastsTheme.primaryText02)
+                                    .lineLimit(1)
+                            }
+                            if !timeText.isEmpty {
+                                Text(timeText)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(PocketCastsTheme.primaryText02)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
 
                     Spacer()
 
-                    // Playing indicator
-                    if isCurrent && vm.isPlaying {
+                    if hoveredRowID == episode.uuid {
+                        infoButton { detailItem = .episode(episode) }
+                    } else if isCurrent && vm.isPlaying {
                         Image(systemName: "waveform")
                             .font(.system(size: 14))
                             .foregroundColor(PocketCastsTheme.accent)
@@ -564,6 +684,7 @@ struct ContentView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { inside in setRowHover(episode.uuid, inside) }
 
             // Inset divider
             Rectangle()
@@ -754,6 +875,10 @@ struct ContentView: View {
 
                 Spacer()
 
+                if hoveredRowID == station.id {
+                    infoButton { detailItem = .station(station) }
+                }
+
                 if showFavoriteToggle {
                     let isFav = vm.isFavorite(stationId: station.id)
                     Button(action: { vm.toggleFavorite(station) }) {
@@ -769,5 +894,239 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { inside in setRowHover(station.id, inside) }
+    }
+
+    // MARK: - Row hover + ⓘ button
+
+    /// Update which row shows its ⓘ. On exit, only clear if this row was the
+    /// hovered one (avoids a late exit from row A wiping row B's hover).
+    private func setRowHover(_ id: String, _ inside: Bool) {
+        if inside {
+            hoveredRowID = id
+        } else if hoveredRowID == id {
+            hoveredRowID = nil
+        }
+    }
+
+    private func infoButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 15))
+                .foregroundColor(PocketCastsTheme.primaryIcon02)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show details")
+    }
+
+    // MARK: - Detail Panel
+
+    @ViewBuilder
+    func detailCard(_ detail: DetailItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: Back / Close
+            HStack(spacing: 0) {
+                Button(action: { detailItem = nil }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Back").font(.system(size: 12))
+                    }
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)   // Esc
+
+                Spacer()
+
+                Button(action: { detailItem = nil }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(PocketCastsTheme.primaryIcon02)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            switch detail {
+            case .episode(let ep):
+                episodeDetail(title: ep.title,
+                              podcastUUID: ep.podcastUUID,
+                              episodeUUID: ep.uuid,
+                              published: ep.published,
+                              duration: ep.duration,
+                              podcastTitle: nil)
+            case .release(let r):
+                episodeDetail(title: r.title,
+                              podcastUUID: r.podcastUUID,
+                              episodeUUID: r.uuid,
+                              published: r.published,
+                              duration: r.duration,
+                              podcastTitle: r.podcastTitle)
+            case .station(let s):
+                stationDetail(s)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(PocketCastsTheme.primaryUi01)
+    }
+
+    @ViewBuilder
+    private func episodeDetail(title: String,
+                               podcastUUID: String,
+                               episodeUUID: String,
+                               published: Date?,
+                               duration: Int,
+                               podcastTitle: String?) -> some View {
+        let artworkURL = URL(string: "https://static.pocketcasts.com/discover/images/130/\(podcastUUID).jpg")
+        let notes = vm.showNotes(forEpisode: episodeUUID)
+        let isLoading = vm.loadingShowNotes.contains(episodeUUID)
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                AsyncImage(url: artworkURL) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().interpolation(.medium)
+                    case .empty, .failure:
+                        RoundedRectangle(cornerRadius: 6).fill(PocketCastsTheme.primaryUi04)
+                    @unknown default:
+                        RoundedRectangle(cornerRadius: 6).fill(PocketCastsTheme.primaryUi04)
+                    }
+                }
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
+                        .lineLimit(3)
+                    if let podcastTitle, !podcastTitle.isEmpty {
+                        Text(podcastTitle)
+                            .font(.system(size: 12))
+                            .foregroundColor(PocketCastsTheme.primaryText02)
+                            .lineLimit(1)
+                    }
+                    let meta = [vm.relativePublishedText(for: published),
+                                vm.episodeDurationText(duration)]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " · ")
+                    if !meta.isEmpty {
+                        Text(meta)
+                            .font(.system(size: 11))
+                            .foregroundColor(PocketCastsTheme.primaryText02)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
+
+            if let notes, !notes.description.isEmpty {
+                ScrollView {
+                    Text(notes.description)
+                        .font(.system(size: 12))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+            } else if isLoading {
+                HStack { Spacer(); ProgressView().scaleEffect(0.7); Spacer() }
+                    .padding(.top, 12)
+                Spacer()
+            } else {
+                Text("No description available.")
+                    .font(.system(size: 12))
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                Spacer()
+            }
+        }
+        .padding(12)
+        .task(id: episodeUUID) {
+            vm.loadShowNotesIfNeeded(episodeUUID: episodeUUID, podcastUUID: podcastUUID)
+        }
+    }
+
+    @ViewBuilder
+    private func stationDetail(_ s: RadioStation) -> some View {
+        let logoURL = stationLogoURL(for: s)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                AsyncImage(url: logoURL) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().interpolation(.medium)
+                    case .empty, .failure:
+                        textPlaceholder(stationLogoFallbackText(for: s))
+                    @unknown default:
+                        textPlaceholder(stationLogoFallbackText(for: s))
+                    }
+                }
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(s.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
+                        .lineLimit(3)
+                    Text("Live Stream")
+                        .font(.system(size: 12))
+                        .foregroundColor(PocketCastsTheme.primaryText02)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
+
+            VStack(alignment: .leading, spacing: 6) {
+                stationMetaRow("Location", value: [s.country, s.language].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                stationMetaRow("Genre", value: s.tags?.replacingOccurrences(of: ",", with: ", "))
+                stationMetaRow("Quality", value: stationQualityText(s))
+                stationMetaRow("Popularity", value: s.votes.map { "\($0) votes" })
+                if let home = s.homepage, !home.isEmpty, let url = URL(string: home) {
+                    Link(destination: url) {
+                        Text(home)
+                            .font(.system(size: 12))
+                            .foregroundColor(PocketCastsTheme.accent)
+                            .lineLimit(1)
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+    }
+
+    @ViewBuilder
+    private func stationMetaRow(_ label: String, value: String?) -> some View {
+        if let value, !value.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                    .frame(width: 70, alignment: .leading)
+                Text(value)
+                    .font(.system(size: 12))
+                    .foregroundColor(PocketCastsTheme.primaryText01)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func stationQualityText(_ s: RadioStation) -> String? {
+        var parts: [String] = []
+        if let codec = s.codec, !codec.isEmpty { parts.append(codec.uppercased()) }
+        if let bitrate = s.bitrate, bitrate > 0 { parts.append("\(bitrate) kbps") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

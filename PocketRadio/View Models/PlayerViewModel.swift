@@ -61,6 +61,10 @@ class PlayerViewModel: ObservableObject {
     private var tracklistStationId: String?
     private var tracklistRefreshTask: Task<Void, Never>?
 
+    // MARK: - Track Identification Mode (Tracklist vs ACRCloud fingerprint)
+    @Published var trackIdMode: TrackIdentificationMode = .tracklist
+    private var fingerprinter: TrackFingerprinter?
+
     // MARK: - Browse / Favorites panel
     enum BrowseTab { case favorites, browse }
     @Published var browseTab: BrowseTab = .favorites
@@ -79,8 +83,14 @@ class PlayerViewModel: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var currentSource: PlayingSource?
     @Published var showSkipControls: Bool = true  // ⏪ ⏯️ ⏩ vs ⏯️-only
+
+    // Scrub bar (seekable content only — podcasts + finite mp3 streams)
+    @Published var currentTimeSeconds: Double = 0
+    @Published var durationSeconds: Double = 0
+    @Published var isScrubbing: Bool = false
     var audioPlayer: AVPlayer = AVPlayer()
     private var durationObserver: AnyCancellable?
+    private var endObserver: NSObjectProtocol?
     private var timeObserverToken: Any?
 
     // Throttle for sync/update_episode writes
@@ -91,9 +101,18 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Now Playing Info
     @Published var nowPlayingTitle: String = ""
 
-    // MARK: - Skip Amounts (hardcoded defaults)
-    let skipBackSeconds: Double = 10
-    let skipForwardSeconds: Double = 45
+    /// True when a live radio stream is playing — shows the Tracklist/ACR toggle.
+    var showTrackSourceToggle: Bool {
+        currentSource?.isRadio == true
+    }
+
+    // MARK: - Episode Show Notes (hover detail)
+    @Published var showNotesCache: [String: EpisodeShowNotes] = [:]
+    @Published var loadingShowNotes: Set<String> = []
+
+    // MARK: - Skip Amounts (read from synced Pocket Casts settings; defaults until fetched)
+    @Published var skipBackSeconds: Double = 10
+    @Published var skipForwardSeconds: Double = 45
 
     // MARK: - Init
 
@@ -135,6 +154,7 @@ class PlayerViewModel: ObservableObject {
             self.loginEmail = ""
             self.loginPassword = ""
 
+            await fetchSkipSettings()
             await fetchUpNext()
             await fetchFavorites()
 
@@ -146,6 +166,7 @@ class PlayerViewModel: ObservableObject {
     }
 
     func logout() {
+        stopFingerprinter()
         stopPlayback()
         KeychainManager.clearAll()
         token = nil
@@ -161,6 +182,16 @@ class PlayerViewModel: ObservableObject {
         isPlaying = false
         nowPlayingTitle = ""
         showSkipControls = true
+    }
+
+    // MARK: - Skip Settings (read-only)
+
+    func fetchSkipSettings() async {
+        guard let token = token else { return }
+        if let settings = await PocketCastsAPI.fetchSkipSettings(token: token) {
+            skipBackSeconds = Double(settings.back)
+            skipForwardSeconds = Double(settings.forward)
+        }
     }
 
     // MARK: - Up Next
@@ -226,7 +257,8 @@ class PlayerViewModel: ObservableObject {
                 url: ep.url,
                 podcastUUID: ep.podcastUUID,
                 playedUpTo: info.playedUpTo > 0 ? info.playedUpTo : ep.playedUpTo,
-                duration: info.duration > 0 ? info.duration : ep.duration
+                duration: info.duration > 0 ? info.duration : ep.duration,
+                published: ep.published
             )
             print("🎵 PocketRadio:   merged ep=\(ep.title.prefix(30)) playedUpTo=\(merged.playedUpTo)s duration=\(merged.duration)s")
             return merged
@@ -370,10 +402,25 @@ class PlayerViewModel: ObservableObject {
                 await MainActor.run {
                     self.tracklist = entries
                     self.isLoadingTracklist = false
+                    self.refreshNowPlayingFromTracklist(for: station)
                 }
                 try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
             }
         }
+    }
+
+    /// When a tracklist is available and this station is the active radio
+    /// source, surface the current track ("Title — Artist") as the
+    /// nowPlayingTitle so the menubar scroll text shows the song instead of
+    /// the station name. Falls back to station.name when no track is known.
+    private func refreshNowPlayingFromTracklist(for station: RadioStation) {
+        guard case .radio(let current) = currentSource, current.id == station.id else { return }
+        if let top = tracklist.first {
+            nowPlayingTitle = "\(top.title) — \(top.artist)"
+        } else {
+            nowPlayingTitle = station.name
+        }
+        NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
     }
 
     private func stopTracklist() {
@@ -382,6 +429,54 @@ class PlayerViewModel: ObservableObject {
         tracklist = []
         tracklistStationId = nil
         isLoadingTracklist = false
+    }
+
+    // MARK: - Track Identification Mode
+
+    /// Toggle between Tracklist API and ACRCloud fingerprinting.
+    /// Tracklist keeps running in either mode — ACR mode just overrides nowPlayingTitle
+    /// when it gets a high-confidence hit.
+    func toggleTrackIdMode() {
+        switch trackIdMode {
+        case .tracklist:
+            trackIdMode = .acr
+            if case .radio(let station) = currentSource {
+                startFingerprinter(for: station)
+            }
+        case .acr:
+            trackIdMode = .tracklist
+            stopFingerprinter()
+            // Restore nowPlayingTitle from current tracklist (if any).
+            if case .radio(let station) = currentSource {
+                refreshNowPlayingFromTracklist(for: station)
+            }
+        }
+    }
+
+    private func startFingerprinter(for station: RadioStation) {
+        stopFingerprinter()
+        guard let url = URL(string: station.streamURL) else { return }
+        let fp = TrackFingerprinter(streamURL: upgradeToHTTPS(url))
+        fp.onResult = { [weak self] result in
+            guard let self, self.trackIdMode == .acr,
+                  case .radio(let current) = self.currentSource,
+                  current.id == station.id else { return }
+            self.nowPlayingTitle = result.displayTitle
+            NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
+            print("🎵 TrackFingerprinter: identified '\(result.displayTitle)' confidence=\(result.confidence)")
+        }
+        fp.onError = { [weak self] msg in
+            // Silently fall back — tracklist title remains visible.
+            print("🎵 TrackFingerprinter: \(msg)")
+            _ = self  // suppress warning
+        }
+        fingerprinter = fp
+        fp.start()
+    }
+
+    private func stopFingerprinter() {
+        fingerprinter?.stop()
+        fingerprinter = nil
     }
 
     func selectEpisode(_ episode: UpNextEpisode) {
@@ -465,30 +560,44 @@ class PlayerViewModel: ObservableObject {
     }
 
     func timeRemainingText(for episode: UpNextEpisode) -> String {
-        // For the currently playing episode, use real-time position
+        // For the currently playing episode, prefer the AVPlayerItem's live
+        // duration + currentTime over the server-reported episode.duration.
+        // Pocket Casts' duration is often a few seconds short of the actual
+        // mp3, which made the UI flip to "Finished" up to a minute early
+        // (especially after the user used skip-forward).
+        let isCurrentlyPlaying: Bool = {
+            if case .podcast(let currentEp) = currentSource,
+               currentEp.uuid == episode.uuid,
+               isPlaying { return true }
+            return false
+        }()
+
         var playedUpTo = episode.playedUpTo
-        if case .podcast(let currentEp) = currentSource,
-           currentEp.uuid == episode.uuid,
-           isPlaying {
-            playedUpTo = Int(audioPlayer.currentTime().seconds)
+        if isCurrentlyPlaying {
+            let s = audioPlayer.currentTime().seconds
+            if s.isFinite, s >= 0 { playedUpTo = Int(s) }
         }
 
-        // If sync gave us a duration, server-side data is authoritative; "X left" is accurate.
-        if episode.duration > 0 {
-            let remaining = max(0, episode.duration - playedUpTo)
-            if remaining == 0 { return "Finished" }
+        // Pick the best-known total duration: AVPlayerItem live > AVAsset probe > sync.
+        var bestDuration = episode.duration
+        if let probed = episodeDurations[episode.uuid], probed > bestDuration {
+            bestDuration = probed
+        }
+        if isCurrentlyPlaying,
+           let itemDur = audioPlayer.currentItem?.duration,
+           itemDur.isValid, !itemDur.isIndefinite {
+            let live = Int(itemDur.seconds)
+            if live > bestDuration { bestDuration = live }
+        }
+
+        if bestDuration > 0 {
+            let remaining = max(0, bestDuration - playedUpTo)
+            // Only declare "Finished" when really at/past the end. Skip-forward
+            // can briefly push playedUpTo past a stale duration; require a
+            // small margin so we don't say "Finished" while audio still plays.
+            if remaining <= 1, !isCurrentlyPlaying { return "Finished" }
+            if remaining <= 0 { return "\(formatDuration(0)) left" }
             return "\(formatDuration(remaining)) left"
-        }
-
-        // No sync duration. Use AVAsset-probed duration if available.
-        if let probed = episodeDurations[episode.uuid], probed > 0 {
-            if playedUpTo > 0 {
-                let remaining = max(0, probed - playedUpTo)
-                if remaining == 0 { return "Finished" }
-                return "\(formatDuration(remaining)) left"
-            }
-            // No playedUpTo info — show plain total, do NOT imply progress.
-            return formatDuration(probed)
         }
 
         if playedUpTo > 0 {
@@ -497,12 +606,93 @@ class PlayerViewModel: ObservableObject {
         return ""
     }
 
+    // MARK: - End-of-playback handling
+
+    private func installEndObserver(for item: AVPlayerItem) {
+        if let prior = endObserver {
+            NotificationCenter.default.removeObserver(prior)
+            endObserver = nil
+        }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handlePlaybackEnded() }
+        }
+    }
+
+    private func removeEndObserver() {
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
+            endObserver = nil
+        }
+    }
+
+    /// Called when the AVPlayerItem reaches its natural end. For podcasts:
+    /// mark completed, remove from Up Next (locally + server), advance to the
+    /// next queued episode, and auto-play it.
+    private func handlePlaybackEnded() {
+        guard case .podcast(let finished) = currentSource else {
+            // Radio streams shouldn't normally hit DidPlayToEndTime; just stop.
+            stopPlayback()
+            return
+        }
+
+        let total = finished.duration > 0 ? finished.duration
+            : (episodeDurations[finished.uuid] ?? 0)
+        savePositionNow(for: finished, position: max(total, 0), status: .completed)
+
+        // Drop from local up-next, advance to next.
+        upNextEpisodes.removeAll { $0.uuid == finished.uuid }
+        topEpisode = upNextEpisodes.first
+
+        if let token = token {
+            Task {
+                do {
+                    try await PocketCastsAPI.removeEpisodeAction(token: token, episode: finished)
+                    print("🎵 PocketRadio: removed finished episode \(finished.title.prefix(30)) from Up Next")
+                } catch {
+                    print("🎵 PocketRadio: remove from Up Next failed: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        if let next = upNextEpisodes.first {
+            // Tear down the finished item and start the next episode.
+            stopPlayback()
+            currentSource = .podcast(next)
+            nowPlayingTitle = next.title
+            startPlayback()
+        } else {
+            stopPlayback()
+            currentSource = nil
+            nowPlayingTitle = ""
+        }
+    }
+
     private func setupTimeObserver() {
         let interval = CMTime(seconds: 1, preferredTimescale: 1)
         timeObserverToken = audioPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
             guard let self = self else { return }
+            self.updateScrubTimes()
             self.objectWillChange.send()
             self.maybeSavePosition()
+        }
+    }
+
+    /// Refresh the scrub bar's elapsed/total from the live AVPlayer. Skipped
+    /// while the user is dragging the slider so playback time doesn't fight the
+    /// thumb.
+    private func updateScrubTimes() {
+        if !isScrubbing {
+            let t = audioPlayer.currentTime().seconds
+            if t.isFinite, t >= 0 { currentTimeSeconds = t }
+        }
+        if let dur = audioPlayer.currentItem?.duration,
+           dur.isValid, !dur.isIndefinite {
+            let d = dur.seconds
+            if d.isFinite, d > 0 { durationSeconds = d }
         }
     }
 
@@ -518,8 +708,10 @@ class PlayerViewModel: ObservableObject {
             return
         }
 
-        let position = Int(audioPlayer.currentTime().seconds)
-        guard position > 0, position != lastSavedPosition else { return }
+        let seconds = audioPlayer.currentTime().seconds
+        guard seconds.isFinite, seconds > 0 else { return }
+        let position = Int(seconds)
+        guard position != lastSavedPosition else { return }
 
         lastPositionSaveTime = now
         lastSavedPosition = position
@@ -545,7 +737,8 @@ class PlayerViewModel: ObservableObject {
                 url: ep.url,
                 podcastUUID: ep.podcastUUID,
                 playedUpTo: position,
-                duration: ep.duration > 0 ? ep.duration : duration
+                duration: ep.duration > 0 ? ep.duration : duration,
+                published: ep.published
             )
         }
         if case .podcast(let cur) = currentSource,
@@ -571,6 +764,85 @@ class PlayerViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Show Notes (hover detail)
+
+    func showNotes(forEpisode uuid: String) -> EpisodeShowNotes? {
+        showNotesCache[uuid]
+    }
+
+    /// Lazily fetch + cache an episode's show notes the first time its detail
+    /// card is shown. No-op if already cached or in flight.
+    func loadShowNotesIfNeeded(episodeUUID: String, podcastUUID: String) {
+        guard !episodeUUID.isEmpty, !podcastUUID.isEmpty,
+              showNotesCache[episodeUUID] == nil,
+              !loadingShowNotes.contains(episodeUUID) else { return }
+        loadingShowNotes.insert(episodeUUID)
+        Task {
+            let notes = await PocketCastsAPI.fetchEpisodeShowNotes(podcastUUID: podcastUUID, episodeUUID: episodeUUID)
+            loadingShowNotes.remove(episodeUUID)
+            if let notes = notes { showNotesCache[episodeUUID] = notes }
+        }
+    }
+
+    /// "32 min" / "1 hr 5 min" duration label for detail cards.
+    func episodeDurationText(_ seconds: Int) -> String {
+        guard seconds > 0 else { return "" }
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        if h > 0 { return m > 0 ? "\(h) hr \(m) min" : "\(h) hr" }
+        if m > 0 { return "\(m) min" }
+        return "\(seconds) sec"
+    }
+
+    // MARK: - Relative Published Date
+
+    private static let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEEE")   // Thursday
+        return f
+    }()
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("d MMM")  // 12 May
+        return f
+    }()
+    private static let monthDayYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("d MMM yyyy")
+        return f
+    }()
+
+    /// Relative release date, matching the iOS app's tiny date style but with
+    /// hours-ago for same-day episodes:
+    ///   today      → "Xm ago" / "1 hr ago" / "12 hrs ago"
+    ///   ≤6 days    → weekday ("Thursday")
+    ///   this year  → "12 May"
+    ///   older      → "12 May 2024"
+    func relativePublishedText(for date: Date?) -> String {
+        guard let date = date else { return "" }
+        let cal = Calendar.current
+        let now = Date()
+        let elapsed = now.timeIntervalSince(date)
+
+        if cal.isDateInToday(date) {
+            if elapsed < 60 { return "Just now" }
+            if elapsed < 3600 {
+                let mins = Int(elapsed / 60)
+                return "\(mins)m ago"
+            }
+            let hrs = Int(elapsed / 3600)
+            return hrs == 1 ? "1 hr ago" : "\(hrs) hrs ago"
+        }
+
+        if elapsed <= 6 * 24 * 3600 {
+            return Self.weekdayFormatter.string(from: date)
+        }
+        if cal.isDate(date, equalTo: now, toGranularity: .year) {
+            return Self.monthDayFormatter.string(from: date)
+        }
+        return Self.monthDayYearFormatter.string(from: date)
+    }
+
     private func formatDuration(_ seconds: Int) -> String {
         if seconds < 60 {
             return "\(seconds)s"
@@ -580,6 +852,42 @@ class PlayerViewModel: ObservableObject {
             let hours = seconds / 3600
             let mins = (seconds % 3600) / 60
             return mins > 0 ? "\(hours)h \(mins)m" : "\(hours)h"
+        }
+    }
+
+    // MARK: - Refresh (context-aware)
+
+    /// Refresh whatever the user is currently viewing.
+    func refreshActiveSection() async {
+        if showBrowseTabs {
+            switch browseTab {
+            case .favorites:
+                await fetchFavorites()
+            case .browse:
+                let trimmed = browseQuery.trimmingCharacters(in: .whitespaces)
+                if trimmed.count >= 2 {
+                    await runSearch(query: trimmed)
+                } else {
+                    await loadTopStations()
+                }
+            }
+            return
+        }
+
+        switch selectedPill {
+        case .podcast:
+            switch podcastTab {
+            case .upNext:
+                await fetchUpNext()
+            case .newReleases:
+                await fetchNewReleases()
+            }
+        case .stream(let idx):
+            if idx < favoriteStations.count {
+                let station = favoriteStations[idx]
+                let entries = await PocketCastsAPI.fetchTracklist(for: station)
+                self.tracklist = entries
+            }
         }
     }
 
@@ -609,7 +917,8 @@ class PlayerViewModel: ObservableObject {
             url: release.url,
             podcastUUID: release.podcastUUID,
             playedUpTo: 0,
-            duration: release.duration
+            duration: release.duration,
+            published: release.published
         )
 
         // Insert at top of local list (or move if already there)
@@ -796,8 +1105,9 @@ class PlayerViewModel: ObservableObject {
     /// the same position. Saves podcast progress to the server.
     private func pausePlayback() {
         if case .podcast(let ep) = currentSource {
-            let position = Int(audioPlayer.currentTime().seconds)
-            if position > 0 {
+            let seconds = audioPlayer.currentTime().seconds
+            if seconds.isFinite, seconds > 0 {
+                let position = Int(seconds)
                 let duration = ep.duration > 0 ? ep.duration : (episodeDurations[ep.uuid] ?? 0)
                 let remaining = duration - position
                 let status: EpisodePlayingStatus = (duration > 0 && remaining <= 10) ? .completed : .inProgress
@@ -825,6 +1135,27 @@ class PlayerViewModel: ObservableObject {
             CMTime(seconds: skipForwardSeconds, preferredTimescale: 1)
         )
         audioPlayer.seek(to: newTime)
+    }
+
+    /// Seek to an absolute position from the scrub bar. Clamped to [0, duration].
+    func scrub(toSeconds seconds: Double) {
+        guard !shouldUseMuteControls else { return }
+        let upper = durationSeconds > 0 ? durationSeconds : seconds
+        let clamped = max(0, min(seconds, upper))
+        currentTimeSeconds = clamped
+        let time = CMTime(seconds: clamped, preferredTimescale: 600)
+        audioPlayer.seek(to: time)
+    }
+
+    /// Clock-style time string (m:ss or h:mm:ss) for the scrub bar labels.
+    func clockTime(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%d:%02d", m, s)
     }
 
     // MARK: - Duration-based Control Detection
@@ -887,9 +1218,17 @@ class PlayerViewModel: ObservableObject {
         audioPlayer.replaceCurrentItem(with: playerItem)
         lastPositionSaveTime = nil
         lastSavedPosition = -1
+        isScrubbing = false
+        durationSeconds = 0
+        if case .podcast(let ep) = currentSource, ep.playedUpTo > 0 {
+            currentTimeSeconds = Double(ep.playedUpTo)
+        } else {
+            currentTimeSeconds = 0
+        }
         isPlaying = true
         observeDuration()
         setupTimeObserver()
+        installEndObserver(for: playerItem)
 
         // For podcast episodes with a saved position, seek first then play
         // (remote items may not be ready for seek until the asset loads)
@@ -910,12 +1249,17 @@ class PlayerViewModel: ObservableObject {
     }
 
     private func stopPlayback() {
+        stopFingerprinter()
+        trackIdMode = .tracklist
         print("🎵 PocketRadio: Stopping playback")
 
-        // Save final position before tearing down
+        // Save final position before tearing down. audioPlayer.currentTime()
+        // can be CMTime.invalid (-> .seconds is NaN) when the item never
+        // loaded or has failed; Int(NaN) traps, so guard explicitly.
         if case .podcast(let ep) = currentSource {
-            let position = Int(audioPlayer.currentTime().seconds)
-            if position > 0 {
+            let seconds = audioPlayer.currentTime().seconds
+            if seconds.isFinite, seconds > 0 {
+                let position = Int(seconds)
                 let duration = ep.duration > 0 ? ep.duration : (episodeDurations[ep.uuid] ?? 0)
                 let remaining = duration - position
                 let status: EpisodePlayingStatus = (duration > 0 && remaining <= 10) ? .completed : .inProgress
@@ -928,6 +1272,7 @@ class PlayerViewModel: ObservableObject {
             audioPlayer.removeTimeObserver(token)
             timeObserverToken = nil
         }
+        removeEndObserver()
         audioPlayer.replaceCurrentItem(with: nil)
         isPlaying = false
         showSkipControls = true
