@@ -181,8 +181,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
         if let icon = NSImage(named: "PocketCastsIcon") {
-            // Menubar height is ~22pt on standard bars. Render at 18pt for breathing room.
-            let target = NSSize(width: 18, height: 18)
+            // Fill the menubar height (thickness ~22pt) minus a small margin so the
+            // glyph reads at the same scale as adjacent system/status icons.
+            let side = NSStatusBar.system.thickness - 4
+            let target = NSSize(width: side, height: side)
             let resized = NSImage(size: target)
             resized.lockFocus()
             icon.draw(in: NSRect(origin: .zero, size: target))
