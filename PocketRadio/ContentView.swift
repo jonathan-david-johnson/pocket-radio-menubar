@@ -667,6 +667,14 @@ struct ContentView: View {
                 }
                 .padding(.vertical, 20)
             } else {
+                let totalText = vm.totalTimeRemainingText
+                if !totalText.isEmpty {
+                    Text(totalText)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(PocketCastsTheme.primaryText02)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 6)
+                }
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(vm.upNextEpisodes, id: \.uuid) { episode in
