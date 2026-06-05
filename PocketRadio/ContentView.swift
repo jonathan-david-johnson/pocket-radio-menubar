@@ -20,6 +20,7 @@ struct ContentView: View {
         case episode(UpNextEpisode)
         case release(NewReleaseEpisode)
         case station(RadioStation)
+        case lyrics(TracklistEntry)
     }
     /// Row currently under the cursor — reveals its ⓘ button.
     @State private var hoveredRowID: String? = nil
@@ -239,6 +240,17 @@ struct ContentView: View {
         .frame(width: 300, height: 380)
         .background(PocketCastsTheme.primaryUi01)
         .overlay(acrToastOverlay, alignment: .bottom)
+        .overlay(
+            Group {
+                Button("") { vm.togglePlayback() }
+                    .keyboardShortcut(.space, modifiers: [])
+                Button("") { vm.skipBack() }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { vm.skipForward() }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .hidden()
+        )
     }
 
     @ViewBuilder
@@ -454,12 +466,34 @@ struct ContentView: View {
     // MARK: - Bottom Section Content
 
     var tracklistView: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(vm.tracklist) { entry in
-                    tracklistRow(entry)
+        VStack(spacing: 0) {
+            if vm.showLyrics && !vm.currentLyric.isEmpty {
+                lyricsBar
+            }
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(vm.tracklist) { entry in
+                        tracklistRow(entry)
+                    }
                 }
             }
+        }
+    }
+
+    private var lyricsBar: some View {
+        VStack(spacing: 0) {
+            Text(vm.currentLyric)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(PocketCastsTheme.primaryText01)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .animation(.easeInOut(duration: 0.3), value: vm.currentLyric)
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
         }
     }
 
@@ -492,6 +526,16 @@ struct ContentView: View {
             }
 
             Spacer()
+
+            Button(action: { detailItem = .lyrics(entry) }) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 13))
+                    .foregroundColor(PocketCastsTheme.primaryIcon02)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("View lyrics")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -993,6 +1037,16 @@ struct ContentView: View {
                               podcastTitle: r.podcastTitle)
             case .station(let s):
                 stationDetail(s)
+            case .lyrics(let entry):
+                let isCurrentSong = vm.tracklist.first.map {
+                    $0.title == entry.title && $0.artist == entry.artist
+                } ?? false
+                LyricsDetailView(
+                    entry: entry,
+                    isCurrentSong: isCurrentSong,
+                    currentLyricIndex: vm.currentLyricLineIndex,
+                    currentLyricText: vm.currentLyric
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1151,5 +1205,140 @@ struct ContentView: View {
         if let codec = s.codec, !codec.isEmpty { parts.append(codec.uppercased()) }
         if let bitrate = s.bitrate, bitrate > 0 { parts.append("\(bitrate) kbps") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Lyrics Detail View
+
+struct LyricsDetailView: View {
+    let entry: TracklistEntry
+    let isCurrentSong: Bool
+    let currentLyricIndex: Int
+    let currentLyricText: String
+
+    @State private var lyricsResult: LyricsResult? = nil
+    @State private var isLoading = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: album art + title + artist
+            HStack(alignment: .center, spacing: 10) {
+                AsyncImage(url: entry.albumArtURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().interpolation(.medium)
+                    case .empty, .failure:
+                        RoundedRectangle(cornerRadius: 6).fill(PocketCastsTheme.primaryUi04)
+                    @unknown default:
+                        RoundedRectangle(cornerRadius: 6).fill(PocketCastsTheme.primaryUi04)
+                    }
+                }
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(PocketCastsTheme.primaryText01)
+                        .lineLimit(2)
+                    Text(entry.artist)
+                        .font(.system(size: 12))
+                        .foregroundColor(PocketCastsTheme.primaryText02)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Rectangle()
+                .fill(PocketCastsTheme.primaryUi05)
+                .frame(height: 1)
+
+            // Lyrics content
+            if isLoading {
+                HStack { Spacer(); ProgressView().scaleEffect(0.7); Spacer() }
+                    .padding(.top, 20)
+                Spacer()
+            } else if let result = lyricsResult {
+                if result.hasSynced {
+                    syncedLyricsView(result)
+                } else if let plain = result.plain, !plain.isEmpty {
+                    plainLyricsView(plain)
+                } else {
+                    noLyricsView
+                }
+            } else {
+                noLyricsView
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task(id: entry.title + entry.artist) {
+            isLoading = true
+            lyricsResult = await LyricsService.shared.fetch(
+                artist: entry.artist,
+                title: entry.title,
+                album: entry.album
+            )
+            isLoading = false
+        }
+    }
+
+    @ViewBuilder
+    private func syncedLyricsView(_ result: LyricsResult) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(result.lines.enumerated()), id: \.offset) { idx, line in
+                        let isCurrent = isCurrentSong && idx == currentLyricIndex
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .font(.system(size: 13, weight: isCurrent ? .bold : .regular))
+                            .foregroundColor(isCurrent
+                                ? PocketCastsTheme.primaryText01
+                                : PocketCastsTheme.primaryText02)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, isCurrent ? 3 : 2)
+                            .id(idx)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .onAppear {
+                if isCurrentSong {
+                    proxy.scrollTo(currentLyricIndex, anchor: .center)
+                }
+            }
+            .onChange(of: currentLyricIndex) { newIdx in
+                if isCurrentSong {
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        proxy.scrollTo(newIdx, anchor: .center)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func plainLyricsView(_ text: String) -> some View {
+        ScrollView {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundColor(PocketCastsTheme.primaryText01)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+        }
+    }
+
+    private var noLyricsView: some View {
+        HStack {
+            Spacer()
+            Text("No lyrics found")
+                .font(.system(size: 13))
+                .foregroundColor(PocketCastsTheme.primaryText02)
+            Spacer()
+        }
+        .padding(.top, 20)
     }
 }

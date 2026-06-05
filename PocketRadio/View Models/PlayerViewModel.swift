@@ -104,6 +104,16 @@ class PlayerViewModel: ObservableObject {
     private let minPositionSaveInterval: TimeInterval = 30
     private var lastSavedPosition: Int = -1
 
+    // MARK: - Lyrics
+    @Published var currentLyric: String = ""
+    @Published var currentLyricLineIndex: Int = 0
+    @Published var showLyrics: Bool = false
+    private var lyricLines: [LyricLine] = []
+    private var lyricStartDate: Date?
+    private var lyricTimer: Timer?
+    private var lyricFetchTask: Task<Void, Never>?
+    private var currentLyricSongKey: String?
+
     // MARK: - Now Playing Info
     @Published var nowPlayingTitle: String = ""
 
@@ -188,6 +198,9 @@ class PlayerViewModel: ObservableObject {
         isPlaying = false
         nowPlayingTitle = ""
         showSkipControls = true
+        stopLyricTimer()
+        currentLyric = ""
+        showLyrics = false
     }
 
     // MARK: - Skip Settings (read-only)
@@ -423,8 +436,12 @@ class PlayerViewModel: ObservableObject {
         guard case .radio(let current) = currentSource, current.id == station.id else { return }
         if let top = tracklist.first {
             nowPlayingTitle = "\(top.title) — \(top.artist)"
+            loadLyrics(for: top)
         } else {
             nowPlayingTitle = station.name
+            stopLyricTimer()
+            currentLyric = ""
+            showLyrics = false
         }
         NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
     }
@@ -435,6 +452,79 @@ class PlayerViewModel: ObservableObject {
         tracklist = []
         tracklistStationId = nil
         isLoadingTracklist = false
+        stopLyricTimer()
+    }
+
+    // MARK: - Lyrics
+
+    func loadLyrics(for entry: TracklistEntry) {
+        let songKey = "\(entry.artist.lowercased())|\(entry.title.lowercased())"
+
+        // Already showing synced lyrics for this exact song — keep timer running.
+        if showLyrics && !lyricLines.isEmpty && currentLyricSongKey == songKey { return }
+
+        lyricFetchTask?.cancel()
+        stopLyricTimer()
+        currentLyric = ""
+        showLyrics = false
+        currentLyricSongKey = songKey
+
+        lyricFetchTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
+            if Task.isCancelled { return }
+
+            guard let result = await LyricsService.shared.fetch(
+                artist: entry.artist,
+                title: entry.title,
+                album: entry.album
+            ) else { return }
+            if Task.isCancelled { return }
+
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                if result.hasSynced {
+                    self.lyricLines = result.lines
+                    let offset = entry.playedAt.map { Date().timeIntervalSince($0) } ?? 0
+                    self.lyricStartDate = entry.playedAt ?? Date().addingTimeInterval(-offset)
+                    self.showLyrics = true
+                    self.startLyricTimer(offset: max(0, offset))
+                } else if let plain = result.plain, !plain.isEmpty {
+                    self.lyricLines = []
+                    self.currentLyric = plain
+                    self.showLyrics = true
+                }
+            }
+        }
+    }
+
+    private func startLyricTimer(offset: TimeInterval) {
+        updateLyricLine(at: offset)
+        lyricTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, let startDate = self.lyricStartDate else { return }
+            let currentOffset = Date().timeIntervalSince(startDate)
+            self.updateLyricLine(at: currentOffset)
+        }
+    }
+
+    private func updateLyricLine(at offset: TimeInterval) {
+        let result = LyricsResult(lines: lyricLines, plain: nil)
+        if let line = LyricsService.shared.currentLine(in: result, at: offset) {
+            currentLyric = line.text
+            if let idx = lyricLines.firstIndex(where: { $0.timestamp == line.timestamp }) {
+                currentLyricLineIndex = idx
+            }
+        }
+    }
+
+    func stopLyricTimer() {
+        lyricTimer?.invalidate()
+        lyricTimer = nil
+        lyricFetchTask?.cancel()
+        lyricFetchTask = nil
+        lyricLines = []
+        lyricStartDate = nil
+        currentLyricSongKey = nil
     }
 
     // MARK: - One-shot ACR identification
@@ -1156,9 +1246,14 @@ class PlayerViewModel: ObservableObject {
         }
     }
 
-    /// Pause playback while keeping the AVPlayerItem so resume continues from
-    /// the same position. Saves podcast progress to the server.
+    /// Pause playback. For live radio streams, tears down the AVPlayerItem
+    /// entirely so resume reconnects fresh (pausing a live stream buffers it,
+    /// causing sync drift with the tracklist and lyrics on resume).
     private func pausePlayback() {
+        if currentSource?.isRadio == true {
+            stopPlayback()
+            return
+        }
         if case .podcast(let ep) = currentSource {
             let seconds = audioPlayer.currentTime().seconds
             if seconds.isFinite, seconds > 0 {

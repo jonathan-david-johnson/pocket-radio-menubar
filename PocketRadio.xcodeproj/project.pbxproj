@@ -17,6 +17,7 @@
 		8C1FEB2328ECB37F006BF71C /* Song.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2228ECB37F006BF71C /* Song.swift */; };
 		8C1FEB2628ECB3BA006BF71C /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2528ECB3BA006BF71C /* APIService.swift */; };
 		AA000001000000000000001A /* TrackFingerprinter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000001B /* TrackFingerprinter.swift */; };
+		AA000001000000000000002A /* LyricsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000002B /* LyricsService.swift */; };
 		8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */; };
 		8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2B28ECB490006BF71C /* Constants.swift */; };
 		8C1FEB2D28ECB5ED006BF71C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF328ECA8DF006BF71C /* ContentView.swift */; };
@@ -55,6 +56,7 @@
 		8C1FEB2228ECB37F006BF71C /* Song.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Song.swift; sourceTree = "<group>"; };
 		8C1FEB2528ECB3BA006BF71C /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
 		AA000001000000000000001B /* TrackFingerprinter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackFingerprinter.swift; sourceTree = "<group>"; };
+		AA000001000000000000002B /* LyricsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsService.swift; sourceTree = "<group>"; };
 		8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
 		8C1FEB2B28ECB490006BF71C /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -159,6 +161,7 @@
 			children = (
 				8C1FEB2528ECB3BA006BF71C /* APIService.swift */,
 				AA000001000000000000001B /* TrackFingerprinter.swift */,
+				AA000001000000000000002B /* LyricsService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -316,6 +319,7 @@
 				8C1FEB2028ECB209006BF71C /* PocketRadioApp.swift in Sources */,
 				8C1FEB2628ECB3BA006BF71C /* APIService.swift in Sources */,
 				AA000001000000000000001A /* TrackFingerprinter.swift in Sources */,
+				AA000001000000000000002A /* LyricsService.swift in Sources */,
 				8C1FEB2D28ECB5ED006BF71C /* ContentView.swift in Sources */,
 				8C1FEB2328ECB37F006BF71C /* Song.swift in Sources */,
 				2DB46C822F294A1B00DEA46A /* Station.swift in Sources */,

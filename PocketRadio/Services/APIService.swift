@@ -1472,10 +1472,24 @@ extension PocketCastsAPI {
         let datetime: String?
     }
 
+    private static let kcrwDateParsers: [ISO8601DateFormatter] = {
+        let base = ISO8601DateFormatter()
+        base.formatOptions = [.withInternetDateTime]
+        let frac = ISO8601DateFormatter()
+        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return [base, frac]
+    }()
+
+    private static func parseKCRWDate(_ s: String?) -> Date? {
+        guard let s else { return nil }
+        for parser in kcrwDateParsers {
+            if let d = parser.date(from: s) { return d }
+        }
+        return nil
+    }
+
     private static func parseKCRW(_ data: Data) -> [TracklistEntry] {
         guard let tracks = try? JSONDecoder().decode([KCRWTrack].self, from: data) else { return [] }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime]
         return tracks.compactMap { t in
             guard let title = t.title, !title.isEmpty,
                   let artist = t.artist, !artist.isEmpty, artist != "[BREAK]" else { return nil }
@@ -1485,7 +1499,7 @@ extension PocketCastsAPI {
                 artist: artist,
                 album: t.album,
                 albumArtURL: imageString.flatMap(URL.init(string:)),
-                playedAt: t.datetime.flatMap(iso.date(from:))
+                playedAt: parseKCRWDate(t.datetime)
             )
         }
     }
