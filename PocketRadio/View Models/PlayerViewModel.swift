@@ -283,11 +283,24 @@ class PlayerViewModel: ObservableObject {
             return merged
         }
         topEpisode = upNextEpisodes.first
-        // If the currently playing source is a podcast, refresh its episode reference so seek-on-start
-        // uses fresh playedUpTo on the next play.
+        // Refresh the current source so seek-on-start uses fresh playedUpTo.
+        // When not playing, also sync currentTimeSeconds/durationSeconds so the
+        // scrub bar and time-remaining label reflect the server-reported position.
         if case .podcast(let cur) = currentSource,
            let refreshed = upNextEpisodes.first(where: { $0.uuid == cur.uuid }) {
             currentSource = .podcast(refreshed)
+            if !isPlaying {
+                currentTimeSeconds = Double(refreshed.playedUpTo)
+                if refreshed.duration > 0 {
+                    durationSeconds = Double(refreshed.duration)
+                }
+            }
+        } else if !isPlaying, let first = upNextEpisodes.first, currentSource == nil {
+            // Nothing staged yet — seed the scrub bar with the top episode's saved position.
+            currentTimeSeconds = Double(first.playedUpTo)
+            if first.duration > 0 {
+                durationSeconds = Double(first.duration)
+            }
         }
     }
 
@@ -1262,6 +1275,13 @@ class PlayerViewModel: ObservableObject {
                 let remaining = duration - position
                 let status: EpisodePlayingStatus = (duration > 0 && remaining <= 10) ? .completed : .inProgress
                 savePositionNow(for: ep, position: position, status: status)
+                if status == .completed {
+                    upNextEpisodes.removeAll { $0.uuid == ep.uuid }
+                    topEpisode = upNextEpisodes.first
+                    if let token = token {
+                        Task { try? await PocketCastsAPI.removeEpisodeAction(token: token, episode: ep) }
+                    }
+                }
             }
         }
         audioPlayer.pause()
@@ -1414,6 +1434,13 @@ class PlayerViewModel: ObservableObject {
                 let remaining = duration - position
                 let status: EpisodePlayingStatus = (duration > 0 && remaining <= 10) ? .completed : .inProgress
                 savePositionNow(for: ep, position: position, status: status)
+                if status == .completed {
+                    upNextEpisodes.removeAll { $0.uuid == ep.uuid }
+                    topEpisode = upNextEpisodes.first
+                    if let token = token {
+                        Task { try? await PocketCastsAPI.removeEpisodeAction(token: token, episode: ep) }
+                    }
+                }
             }
         }
 
