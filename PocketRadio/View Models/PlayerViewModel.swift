@@ -8,6 +8,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import MediaPlayer
 import OSLog
 
 private let acrLog = Logger(subsystem: "com.jdj.pocketradio", category: "ACR")
@@ -116,6 +117,8 @@ class PlayerViewModel: ObservableObject {
 
     // MARK: - Now Playing Info
     @Published var nowPlayingTitle: String = ""
+    private var lastNowPlayingInfoUpdate: Date?
+    private let minNowPlayingInfoInterval: TimeInterval = 1
 
     /// Show ACR button when playing a radio station.
     var showTrackSourceToggle: Bool {
@@ -140,6 +143,51 @@ class PlayerViewModel: ObservableObject {
 
         Task {
             await login()
+        }
+
+        setupRemoteCommands()
+    }
+
+    // MARK: - Remote Command Center (headphone / media keys)
+
+    private func setupRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+
+        center.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            if !self.isPlaying { self.togglePlayback() }
+            return .success
+        }
+
+        center.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            if self.isPlaying { self.togglePlayback() }
+            return .success
+        }
+
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            self.togglePlayback()
+            return .success
+        }
+
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self, !self.shouldUseMuteControls else { return .commandFailed }
+            self.skipForward()
+            return .success
+        }
+
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self, !self.shouldUseMuteControls else { return .commandFailed }
+            self.skipBack()
+            return .success
+        }
+
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, !self.shouldUseMuteControls,
+                  let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self.scrub(toSeconds: event.positionTime)
+            return .success
         }
     }
 
@@ -201,6 +249,7 @@ class PlayerViewModel: ObservableObject {
         stopLyricTimer()
         currentLyric = ""
         showLyrics = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     // MARK: - Skip Settings (read-only)
@@ -836,6 +885,7 @@ class PlayerViewModel: ObservableObject {
             self.updateScrubTimes()
             self.objectWillChange.send()
             self.maybeSavePosition()
+            self.updateNowPlayingInfo(force: false)
         }
     }
 
@@ -1460,6 +1510,47 @@ class PlayerViewModel: ObservableObject {
 
     private func notifyNowPlayingChanged() {
         NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
+        updateNowPlayingInfo()
+    }
+
+    // MARK: - MPNowPlayingInfoCenter
+
+    /// Publish current playback state to Control Center / headphone HUD.
+    /// Throttled so the periodic time observer doesn't write 60x/min.
+    private func updateNowPlayingInfo(force: Bool = true) {
+        if !force, let last = lastNowPlayingInfoUpdate,
+           Date().timeIntervalSince(last) < minNowPlayingInfoInterval {
+            return
+        }
+        lastNowPlayingInfoUpdate = Date()
+
+        guard let source = currentSource else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        var info: [String: Any] = [:]
+        info[MPMediaItemPropertyTitle] = nowPlayingTitle
+
+        switch source {
+        case .podcast:
+            info[MPNowPlayingInfoPropertyIsLiveStream] = false
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTimeSeconds
+            if durationSeconds > 0 {
+                info[MPMediaItemPropertyPlaybackDuration] = durationSeconds
+            }
+        case .radio(let station):
+            info[MPMediaItemPropertyArtist] = station.name
+            info[MPNowPlayingInfoPropertyIsLiveStream] = shouldUseMuteControls
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTimeSeconds
+            if durationSeconds > 0 {
+                info[MPMediaItemPropertyPlaybackDuration] = durationSeconds
+            }
+        }
+
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     // MARK: - Helpers
