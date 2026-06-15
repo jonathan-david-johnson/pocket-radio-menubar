@@ -467,7 +467,7 @@ struct ContentView: View {
 
     var tracklistView: some View {
         VStack(spacing: 0) {
-            if vm.showLyrics && !vm.currentLyric.isEmpty {
+            if vm.lyricStatus != .none {
                 lyricsBar
             }
             ScrollView {
@@ -482,18 +482,32 @@ struct ContentView: View {
 
     private var lyricsBar: some View {
         VStack(spacing: 0) {
-            Text(vm.currentLyric)
+            Text(lyricBarText)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(PocketCastsTheme.primaryText01)
+                .foregroundColor(vm.lyricStatus == .found
+                                 ? PocketCastsTheme.primaryText01
+                                 : PocketCastsTheme.primaryText02)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .animation(.easeInOut(duration: 0.3), value: vm.currentLyric)
+                .animation(.easeInOut(duration: 0.3), value: lyricBarText)
             Rectangle()
                 .fill(PocketCastsTheme.primaryUi05)
                 .frame(height: 1)
+        }
+    }
+
+    private var lyricBarText: String {
+        switch vm.lyricStatus {
+        case .fetching: return "Fetching…"
+        case .notFound: return "No lyrics found"
+        case .found: return vm.currentLyric
+        case .betweenTracks:
+            let name = vm.currentStationName
+            return name.isEmpty ? "On air" : "♪ \(name)"
+        case .none: return ""
         }
     }
 
@@ -1050,6 +1064,7 @@ struct ContentView: View {
                     $0.title == entry.title && $0.artist == entry.artist
                 } ?? false
                 LyricsDetailView(
+                    vm: vm,
                     entry: entry,
                     isCurrentSong: isCurrentSong,
                     currentLyricIndex: vm.currentLyricLineIndex,
@@ -1219,6 +1234,7 @@ struct ContentView: View {
 // MARK: - Lyrics Detail View
 
 struct LyricsDetailView: View {
+    @ObservedObject var vm: PlayerViewModel
     let entry: TracklistEntry
     let isCurrentSong: Bool
     let currentLyricIndex: Int
@@ -1255,6 +1271,10 @@ struct LyricsDetailView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+
+                if isCurrentSong && vm.hasSyncedLyrics {
+                    offsetControls
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -1290,6 +1310,30 @@ struct LyricsDetailView: View {
             )
             isLoading = false
         }
+    }
+
+    private var offsetControls: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 6) {
+                offsetButton(label: "−", delta: -1)
+                offsetButton(label: "+", delta: 1)
+            }
+            Text("\(vm.lyricOffset >= 0 ? "+" : "")\(Int(vm.lyricOffset))s")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(PocketCastsTheme.primaryText02)
+        }
+    }
+
+    private func offsetButton(label: String, delta: TimeInterval) -> some View {
+        Button(action: { vm.adjustLyricOffset(by: delta) }) {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(PocketCastsTheme.primaryText02)
+                .frame(width: 22, height: 22)
+                .background(PocketCastsTheme.primaryUi05)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

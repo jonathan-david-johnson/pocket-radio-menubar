@@ -12,6 +12,7 @@ import MediaPlayer
 import OSLog
 
 private let acrLog = Logger(subsystem: "com.jdj.pocketradio", category: "ACR")
+private let lyricLog = Logger(subsystem: "com.jdj.pocketradio", category: "Lyrics")
 
 // MARK: - Pill Type
 
@@ -109,7 +110,33 @@ class PlayerViewModel: ObservableObject {
     @Published var currentLyric: String = ""
     @Published var currentLyricLineIndex: Int = 0
     @Published var showLyrics: Bool = false
+    /// Bar state for lyrics-enabled stations: fetching / found / not-found / hidden.
+    @Published var lyricStatus: LyricStatus = .none
+    /// True only when synced (timed) lyrics are loaded — gates the +/- offset controls.
+    @Published var hasSyncedLyrics: Bool = false
+    /// Live-tunable sync correction (seconds). Positive advances lyrics to catch up to delayed audio.
+    /// In-memory only for now — not persisted. Tune with the +/- controls, read the value from the log.
+    @Published var lyricOffset: TimeInterval = 0
     private var lyricLines: [LyricLine] = []
+
+    enum LyricStatus: Equatable {
+        case none          // not a lyrics-enabled context — hide the bar
+        case fetching
+        case found
+        case notFound
+        case betweenTracks // synced lyrics loaded but audio is outside the song (DJ talk / ad / gap)
+    }
+
+    /// Track length (lrclib) for the current synced song — used to detect "between tracks".
+    private var lyricDuration: TimeInterval?
+    /// Per-station saved sync offsets (seconds), loaded from Supabase. [stationId: seconds]
+    private var lyricOffsetsByStation: [String: TimeInterval] = [:]
+    private var lyricOffsetSaveTask: Task<Void, Never>?
+
+    private var currentStationId: String? {
+        if case .radio(let station) = currentSource { return station.id }
+        return nil
+    }
     private var lyricStartDate: Date?
     private var lyricTimer: Timer?
     private var lyricFetchTask: Task<Void, Never>?
@@ -381,6 +408,11 @@ class PlayerViewModel: ObservableObject {
         } catch {
             print("🎵 PocketRadio: Failed to fetch favorites: \(error.localizedDescription)")
         }
+
+        // Load saved per-station lyric offsets (best-effort).
+        if let offsets = try? await PocketCastsAPI.fetchLyricOffsets(userId: userId) {
+            self.lyricOffsetsByStation = offsets.mapValues { TimeInterval($0) }
+        }
     }
 
     private func applySavedOrder(to stations: [RadioStation], userId: String) -> [RadioStation] {
@@ -504,6 +536,7 @@ class PlayerViewModel: ObservableObject {
             stopLyricTimer()
             currentLyric = ""
             showLyrics = false
+            lyricStatus = .none
         }
         NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
     }
@@ -528,7 +561,9 @@ class PlayerViewModel: ObservableObject {
         lyricFetchTask?.cancel()
         stopLyricTimer()
         currentLyric = ""
-        showLyrics = false
+        showLyrics = true
+        lyricStatus = .fetching
+        hasSyncedLyrics = false
         currentLyricSongKey = songKey
 
         lyricFetchTask = Task { [weak self] in
@@ -536,47 +571,100 @@ class PlayerViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
             if Task.isCancelled { return }
 
-            guard let result = await LyricsService.shared.fetch(
+            let result = await LyricsService.shared.fetch(
                 artist: entry.artist,
                 title: entry.title,
                 album: entry.album
-            ) else { return }
+            )
             if Task.isCancelled { return }
 
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                if result.hasSynced {
+                if let result, result.hasSynced {
                     self.lyricLines = result.lines
+                    self.lyricDuration = result.duration
+                    self.hasSyncedLyrics = true
+                    self.lyricOffset = self.lyricOffsetsByStation[self.currentStationId ?? ""] ?? 0
                     let offset = entry.playedAt.map { Date().timeIntervalSince($0) } ?? 0
                     self.lyricStartDate = entry.playedAt ?? Date().addingTimeInterval(-offset)
-                    self.showLyrics = true
+                    self.lyricStatus = .found
                     self.startLyricTimer(offset: max(0, offset))
-                } else if let plain = result.plain, !plain.isEmpty {
+                } else if let plain = result?.plain, !plain.isEmpty {
                     self.lyricLines = []
                     self.currentLyric = plain
-                    self.showLyrics = true
+                    self.lyricStatus = .found
+                } else {
+                    // fetch failed or no synced/plain lyrics for this track
+                    self.lyricLines = []
+                    self.currentLyric = ""
+                    self.lyricStatus = .notFound
                 }
             }
         }
     }
 
     private func startLyricTimer(offset: TimeInterval) {
-        updateLyricLine(at: offset)
+        updateLyricLine(at: offset + lyricOffset)
         lyricTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self, let startDate = self.lyricStartDate else { return }
             let currentOffset = Date().timeIntervalSince(startDate)
-            self.updateLyricLine(at: currentOffset)
+            self.updateLyricLine(at: currentOffset + self.lyricOffset)
+        }
+    }
+
+    /// Nudge the live sync correction and immediately re-evaluate the current line.
+    func adjustLyricOffset(by delta: TimeInterval) {
+        lyricOffset += delta
+        if let startDate = lyricStartDate {
+            updateLyricLine(at: Date().timeIntervalSince(startDate) + lyricOffset)
+        }
+        let song = currentLyricSongKey ?? "—"
+        lyricLog.info("lyric offset = \(self.lyricOffset, format: .fixed(precision: 1))s  song=\(song, privacy: .public)")
+
+        // Persist per-station (debounced so rapid taps collapse to one upsert).
+        guard let stationId = currentStationId, let userId else { return }
+        lyricOffsetsByStation[stationId] = lyricOffset
+        let seconds = Int(lyricOffset)
+        lyricOffsetSaveTask?.cancel()
+        lyricOffsetSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            if Task.isCancelled { return }
+            do {
+                try await PocketCastsAPI.upsertLyricOffset(userId: userId, stationId: stationId, seconds: seconds)
+                lyricLog.info("saved offset \(seconds)s station=\(stationId, privacy: .public)")
+            } catch {
+                lyricLog.error("offset save failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
     private func updateLyricLine(at offset: TimeInterval) {
+        guard let first = lyricLines.first, let last = lyricLines.last else { return }
+
+        // Outside the song's timeline → DJ talk / ad / gap between tracks.
+        let songEnd = lyricDuration ?? (last.timestamp + Self.lyricEndGrace)
+        if offset < first.timestamp - Self.lyricIntroGrace || offset > songEnd + Self.lyricEndGrace {
+            lyricStatus = .betweenTracks
+            return
+        }
+
         let result = LyricsResult(lines: lyricLines, plain: nil)
         if let line = LyricsService.shared.currentLine(in: result, at: offset) {
+            lyricStatus = .found
             currentLyric = line.text
             if let idx = lyricLines.firstIndex(where: { $0.timestamp == line.timestamp }) {
                 currentLyricLineIndex = idx
             }
         }
+    }
+
+    private static let lyricIntroGrace: TimeInterval = 3   // tolerance before the first sung line
+    private static let lyricEndGrace: TimeInterval = 12    // tolerance after the last line / duration
+
+    /// Name of the active radio station, shown in the lyrics bar between tracks.
+    var currentStationName: String {
+        if case .radio(let station) = currentSource { return station.name }
+        return ""
     }
 
     func stopLyricTimer() {
@@ -587,6 +675,9 @@ class PlayerViewModel: ObservableObject {
         lyricLines = []
         lyricStartDate = nil
         currentLyricSongKey = nil
+        hasSyncedLyrics = false
+        lyricDuration = nil
+        lyricStatus = .none
     }
 
     // MARK: - One-shot ACR identification

@@ -1335,6 +1335,58 @@ extension PocketCastsAPI {
         }
     }
 
+    /// Fetch all per-station lyric sync offsets for the user. Returns [stationId: seconds].
+    static func fetchLyricOffsets(userId: String) async throws -> [String: Int] {
+        guard let url = URL(string: "\(supabaseURL)/rest/v1/lyric_offsets?select=station_id,offset_seconds") else {
+            throw LoginError.unknown
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue(userId, forHTTPHeaderField: "x-user-uuid")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw LoginError.badResponse
+        }
+
+        struct OffsetRow: Decodable {
+            let stationId: String
+            let offsetSeconds: Int
+            enum CodingKeys: String, CodingKey {
+                case stationId = "station_id"
+                case offsetSeconds = "offset_seconds"
+            }
+        }
+        let rows = try JSONDecoder().decode([OffsetRow].self, from: data)
+        return Dictionary(uniqueKeysWithValues: rows.map { ($0.stationId, $0.offsetSeconds) })
+    }
+
+    /// Upsert the lyric sync offset (seconds) for one station.
+    static func upsertLyricOffset(userId: String, stationId: String, seconds: Int) async throws {
+        guard let url = URL(string: "\(supabaseURL)/rest/v1/lyric_offsets") else { throw LoginError.unknown }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue(userId, forHTTPHeaderField: "x-user-uuid")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("return=minimal,resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "user_uuid": userId,
+            "station_id": stationId,
+            "offset_seconds": seconds,
+            "updated_at": ISO8601DateFormatter().string(from: Date())
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LoginError.badResponse }
+        if !(200..<300).contains(http.statusCode) {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            print("🎵 PocketRadio: upsertLyricOffset HTTP \(http.statusCode): \(bodyStr)")
+            throw LoginError.badResponse
+        }
+    }
+
     /// Remove a station UUID from the user's Supabase favorites table.
     static func removeFavorite(userId: String, stationId: String) async throws {
         guard let url = URL(string: "\(supabaseURL)/rest/v1/radio_favorites?station_id=eq.\(stationId)&user_uuid=eq.\(userId)") else {
