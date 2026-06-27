@@ -46,6 +46,8 @@ class PlayerViewModel: ObservableObject {
     private var token: String?
     private var userId: String?
 
+    let remoteControl = RemoteControlService()
+
     // MARK: - Pill & Browse State
     @Published var selectedPill: PillType = .podcast
     @Published var showBrowseTabs: Bool = false
@@ -88,8 +90,8 @@ class PlayerViewModel: ObservableObject {
     @Published var isLoadingNewReleases: Bool = false
 
     // MARK: - Playback
-    @Published var isPlaying: Bool = false
-    @Published var currentSource: PlayingSource?
+    @Published var isPlaying: Bool = false { didSet { remoteControl.trackPresence() } }
+    @Published var currentSource: PlayingSource? { didSet { remoteControl.trackPresence() } }
     @Published var showSkipControls: Bool = true  // ⏪ ⏯️ ⏩ vs ⏯️-only
 
     // Scrub bar (seekable content only — podcasts + finite mp3 streams)
@@ -167,6 +169,8 @@ class PlayerViewModel: ObservableObject {
         // Keychain reads trigger macOS permission popups; skip them.
         self.loginEmail = Constants.testEmail
         self.loginPassword = Constants.testPassword
+
+        remoteControl.player = self
 
         Task {
             await login()
@@ -248,6 +252,7 @@ class PlayerViewModel: ObservableObject {
             await fetchSkipSettings()
             await fetchUpNext()
             await fetchFavorites()
+            remoteControl.start(userId: result.userId)
 
         } catch let error as LoginError {
             loginErrorMessage = error.errorDescription
@@ -257,6 +262,7 @@ class PlayerViewModel: ObservableObject {
     }
 
     func logout() {
+        remoteControl.stop()
         stopFingerprinter()
         stopPlayback()
         KeychainManager.clearAll()
