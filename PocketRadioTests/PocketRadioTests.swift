@@ -6,7 +6,7 @@
 //
 
 import XCTest
-@testable import KCRW_MenuBar_Player
+@testable import PocketRadio
 
 final class KCRW_MenuBar_PlayerTests: XCTestCase {
 

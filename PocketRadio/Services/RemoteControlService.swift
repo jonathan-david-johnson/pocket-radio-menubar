@@ -127,11 +127,16 @@ final class RemoteControlService {
         guard let data = text.data(using: .utf8),
               let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
               array.count >= 5 else { return }
+        let ref = array[1] as? String ?? ""
         let event = array[3] as? String ?? ""
         let payload = array[4] as? [String: Any] ?? [:]
 
         switch event {
         case "phx_reply":
+            // Only the join reply (ref == joinRef) means "channel joined".
+            // Presence/heartbeat sends also get phx_reply:ok — replying to those
+            // with sendPresence() would create a feedback loop.
+            guard ref == joinRef else { break }
             let status = (payload["status"] as? String) ?? ""
             if status == "ok" {
                 print("🌐 RemoteControl: channel joined ok")
@@ -156,37 +161,33 @@ final class RemoteControlService {
     }
 
     private func handleCommand(_ raw: [String: Any]) {
-        guard let commandId = raw["command_id"] as? String,
-              let targetId = raw["target_device_id"] as? String,
-              let command = raw["command"] as? String else { return }
-        guard targetId == deviceId else { return }
-        guard !seenCommandIds.contains(commandId) else {
-            print("🌐 RemoteControl: dropping duplicate commandId=\(commandId)")
+        guard let data = try? JSONSerialization.data(withJSONObject: raw),
+              let cmd = try? JSONDecoder().decode(RemoteCommand.self, from: data) else {
+            print("🌐 RemoteControl: failed to decode command: \(raw["command"] ?? "?")")
             return
         }
-        seenCommandIds.insert(commandId)
-
-        let fromId = raw["from_device_id"] as? String ?? "?"
-        print("🌐 RemoteControl: received command=\(command) from=\(fromId) id=\(commandId)")
+        guard cmd.targetDeviceId == deviceId else { return }
+        guard !seenCommandIds.contains(cmd.commandId) else {
+            print("🌐 RemoteControl: dropping duplicate commandId=\(cmd.commandId)")
+            return
+        }
+        seenCommandIds.insert(cmd.commandId)
+        print("🌐 RemoteControl: received command=\(cmd.command.rawValue) from=\(cmd.fromDeviceId) id=\(cmd.commandId)")
 
         guard let player else { return }
-        switch command {
-        case "play":
+        switch cmd.command {
+        case .play:
             if !player.isPlaying { player.togglePlayback() }
-        case "pause":
+        case .pause, .stop:
             if player.isPlaying { player.togglePlayback() }
-        case "stop":
-            if player.isPlaying { player.togglePlayback() }
-        case "load_station":
-            if let cmdPayload = raw["payload"] as? [String: Any],
-               let stationUrl = cmdPayload["station_url"] as? String,
-               let stationName = cmdPayload["station_name"] as? String,
-               let stationId = cmdPayload["station_id"] as? String {
+        case .loadStation:
+            if let p = cmd.payload,
+               let stationUrl = p.stationUrl,
+               let stationName = p.stationName,
+               let stationId = p.stationId {
                 let station = RadioStation(id: stationId, name: stationName, streamURL: stationUrl, logoURL: nil)
                 player.playStation(station)
             }
-        default:
-            print("🌐 RemoteControl: unknown command=\(command)")
         }
 
         sendPresence()
@@ -196,39 +197,40 @@ final class RemoteControlService {
 
     private func sendPresence() {
         guard let player else { return }
-        let playbackState: String
+        let state: PlaybackState
         if player.isPlaying {
-            playbackState = "playing"
+            state = .playing
         } else if player.currentSource != nil {
-            playbackState = "paused"
+            state = .paused
         } else {
-            playbackState = "idle"
+            state = .idle
         }
 
-        var stationId: String? = nil
-        var stationName: String? = nil
+        var stationId: String?
+        var stationName: String?
         if case .radio(let s) = player.currentSource {
             stationId = s.id
             stationName = s.name
         }
 
         let deviceName = Host.current().localizedName ?? "Mac"
-        let presence: [String: Any] = [
-            "device_id": deviceId,
-            "device_type": "macos",
-            "device_name": deviceName,
-            "role": "receiver",
-            "playback": [
-                "state": playbackState,
-                "station_id": stationId as Any,
-                "station_name": stationName as Any,
-            ],
-            "updated_at": ISO8601DateFormatter().string(from: Date())
-        ]
+        let presence = RemotePresence(
+            deviceId: deviceId,
+            deviceType: "macos",
+            deviceName: deviceName,
+            role: "receiver",
+            playback: RemotePlaybackState(state: state, stationId: stationId, stationName: stationName, artworkUrl: nil),
+            updatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+
+        // Transport boundary: send() takes [String:Any]. Bounce through JSON.
+        guard let presenceData = try? JSONEncoder().encode(presence),
+              let presenceDict = try? JSONSerialization.jsonObject(with: presenceData) as? [String: Any] else { return }
+
         let presencePayload: [String: Any] = [
             "type": "presence",
             "event": "track",
-            "payload": presence
+            "payload": presenceDict
         ]
         send(joinRef: joinRef, ref: nextRef(), topic: channelTopic, event: "presence", payload: presencePayload)
     }

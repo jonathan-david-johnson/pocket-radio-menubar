@@ -19,6 +19,8 @@
 		AA000001000000000000001A /* TrackFingerprinter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000001B /* TrackFingerprinter.swift */; };
 		AA000001000000000000002A /* LyricsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000002B /* LyricsService.swift */; };
 		B47CCF9110244C05817260BB /* RemoteControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4A7ACAA549478C8E1B28FE /* RemoteControlService.swift */; };
+		BB000001000000000000001A /* RemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001B /* RemoteCommand.swift */; };
+		BB000002000000000000001A /* RemoteCommandFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000002000000000000001B /* RemoteCommandFixtureTests.swift */; };
 		8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */; };
 		8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2B28ECB490006BF71C /* Constants.swift */; };
 		8C1FEB2D28ECB5ED006BF71C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF328ECA8DF006BF71C /* ContentView.swift */; };
@@ -59,6 +61,8 @@
 		AA000001000000000000001B /* TrackFingerprinter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackFingerprinter.swift; sourceTree = "<group>"; };
 		AA000001000000000000002B /* LyricsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsService.swift; sourceTree = "<group>"; };
 		2F4A7ACAA549478C8E1B28FE /* RemoteControlService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlService.swift; sourceTree = "<group>"; };
+		BB000001000000000000001B /* RemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommand.swift; sourceTree = "<group>"; };
+		BB000002000000000000001B /* RemoteCommandFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommandFixtureTests.swift; sourceTree = "<group>"; };
 		8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
 		8C1FEB2B28ECB490006BF71C /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -136,6 +140,7 @@
 			isa = PBXGroup;
 			children = (
 				8C1FEB0328ECA8E2006BF71C /* PocketRadioTests.swift */,
+				BB000002000000000000001B /* RemoteCommandFixtureTests.swift */,
 			);
 			path = "PocketRadioTests";
 			sourceTree = "<group>";
@@ -154,6 +159,7 @@
 			children = (
 				2DB46C812F294A1B00DEA46A /* Station.swift */,
 				8C1FEB2228ECB37F006BF71C /* Song.swift */,
+				BB000001000000000000001B /* RemoteCommand.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -329,6 +335,7 @@
 				2DB46C822F294A1B00DEA46A /* Station.swift in Sources */,
 				8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */,
 				8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */,
+				BB000001000000000000001A /* RemoteCommand.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -337,6 +344,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8C1FEB0428ECA8E2006BF71C /* PocketRadioTests.swift in Sources */,
+				BB000002000000000000001A /* RemoteCommandFixtureTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -567,7 +575,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
-				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradioTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -586,7 +594,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
-				MACOSX_DEPLOYMENT_TARGET = 12.3;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jdj.pocketradioTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
