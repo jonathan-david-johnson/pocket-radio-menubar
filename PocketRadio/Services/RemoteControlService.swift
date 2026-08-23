@@ -3,13 +3,29 @@ import Foundation
 // Supabase Realtime Phoenix WebSocket receiver (protocol v2 — JSON array frames).
 // Wire format: [joinRef, ref, topic, event, payload]
 @MainActor
-final class RemoteControlService {
+final class RemoteControlService: ObservableObject {
     private static let supabaseHost = "brvtspdculqyvdrmdtef.supabase.co"
     private static let anonKey = "sb_publishable_1MRvFzvB6O7f2zDPfs2nkA_p18FSLUF"
 
     private let deviceIdKey = "pocketradio-device-id"
 
     weak var player: PlayerViewModel?
+
+    // MARK: - Presence & target
+
+    @Published private(set) var presenceList: [String: RemotePresence] = [:]
+    @Published private(set) var activeTargetDeviceId: String?
+
+    func otherDevices() -> [RemotePresence] {
+        presenceList.values.filter { $0.deviceId != deviceId }.sorted { $0.deviceName < $1.deviceName }
+    }
+
+    func setTarget(_ id: String?) {
+        activeTargetDeviceId = id
+        log("target set to \(id ?? "nil")")
+    }
+
+    // MARK: - Connection state
 
     private var userId: String = ""
     private var channelTopic: String = ""
@@ -47,6 +63,7 @@ final class RemoteControlService {
         userId = ""
         channelTopic = ""
         seenCommandIds = []
+        presenceList = [:]
     }
 
     func trackPresence() {
@@ -70,6 +87,7 @@ final class RemoteControlService {
         var request = URLRequest(url: url)
         request.setValue(Self.anonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(Self.anonKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(userId, forHTTPHeaderField: "x-user-uuid")
 
         let ws = URLSession.shared.webSocketTask(with: request)
         task = ws
@@ -101,7 +119,7 @@ final class RemoteControlService {
             "access_token": Self.anonKey
         ]
         send(joinRef: joinRef, ref: joinRef, topic: channelTopic, event: "phx_join", payload: payload)
-        print("🌐 RemoteControl: joining channel=\(channelTopic) device=\(deviceId)")
+        log("joining channel=\(channelTopic) device=\(deviceId)")
     }
 
     private func receiveLoop(ws: URLSessionWebSocketTask) async {
@@ -117,10 +135,11 @@ final class RemoteControlService {
                     break
                 }
             } catch {
-                print("🌐 RemoteControl: receive error: \(error)")
+                log("receive error: \(error)")
                 break
             }
         }
+        log("receive loop ended")
     }
 
     private func handleFrame(_ text: String) {
@@ -133,14 +152,16 @@ final class RemoteControlService {
 
         switch event {
         case "phx_reply":
-            // Only the join reply (ref == joinRef) means "channel joined".
-            // Presence/heartbeat sends also get phx_reply:ok — replying to those
-            // with sendPresence() would create a feedback loop.
-            guard ref == joinRef else { break }
             let status = (payload["status"] as? String) ?? ""
-            if status == "ok" {
-                print("🌐 RemoteControl: channel joined ok")
-                sendPresence()
+            if ref == joinRef {
+                if status == "ok" {
+                    log("channel joined ok")
+                    sendPresence()
+                } else {
+                    log("channel join FAILED status=\(status) response=\(payload)")
+                }
+            } else if status != "ok" {
+                log("phx_reply ERROR ref=\(ref) status=\(status) response=\(payload)")
             }
         case "broadcast":
             guard let broadcastEvent = payload["event"] as? String,
@@ -150,29 +171,66 @@ final class RemoteControlService {
         case "presence_diff":
             let joins = (payload["joins"] as? [String: Any]) ?? [:]
             let leaves = (payload["leaves"] as? [String: Any]) ?? [:]
-            print("🌐 RemoteControl: presence_diff joins=\(joins.count) leaves=\(leaves.count)")
-            for key in joins.keys { print("🌐 RemoteControl:   join device=\(key)") }
-            for key in leaves.keys { print("🌐 RemoteControl:   leave device=\(key)") }
+            applyPresenceDiff(joins: joins, leaves: leaves)
         case "presence_state":
-            print("🌐 RemoteControl: presence_state devices=\((payload.keys).joined(separator: ","))")
+            applyPresenceState(payload)
         default:
             break
         }
     }
 
+    // MARK: - Presence decoding
+
+    // Supabase presence frame structure:
+    //   "joins": { "presenceKey": { "metas": [{ phx_ref, ...our RemotePresence fields }] } }
+    private func applyPresenceDiff(joins: [String: Any], leaves: [String: Any]) {
+        for (key, val) in joins {
+            if let p = decodePresence(from: val) {
+                presenceList[key] = p
+                log("presence join device=\(key) name=\(p.deviceName) state=\(p.playback.state.rawValue)")
+            }
+        }
+        for key in leaves.keys {
+            presenceList.removeValue(forKey: key)
+            if activeTargetDeviceId == key { setTarget(nil) }
+            log("presence leave device=\(key)")
+        }
+        log("presence_diff joins=\(joins.count) leaves=\(leaves.count) total=\(presenceList.count)")
+    }
+
+    private func applyPresenceState(_ payload: [String: Any]) {
+        for (key, val) in payload {
+            if let p = decodePresence(from: val) {
+                presenceList[key] = p
+                log("presence_state device=\(key) name=\(p.deviceName)")
+            }
+        }
+        log("presence_state total=\(presenceList.count)")
+    }
+
+    private func decodePresence(from val: Any) -> RemotePresence? {
+        guard let dict = val as? [String: Any],
+              let metas = dict["metas"] as? [[String: Any]],
+              let meta = metas.first,
+              let data = try? JSONSerialization.data(withJSONObject: meta) else { return nil }
+        return try? JSONDecoder().decode(RemotePresence.self, from: data)
+    }
+
+    // MARK: - Command handling
+
     private func handleCommand(_ raw: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: raw),
               let cmd = try? JSONDecoder().decode(RemoteCommand.self, from: data) else {
-            print("🌐 RemoteControl: failed to decode command: \(raw["command"] ?? "?")")
+            log("failed to decode command: \(raw["command"] ?? "?")")
             return
         }
         guard cmd.targetDeviceId == deviceId else { return }
         guard !seenCommandIds.contains(cmd.commandId) else {
-            print("🌐 RemoteControl: dropping duplicate commandId=\(cmd.commandId)")
+            log("dropping duplicate commandId=\(cmd.commandId)")
             return
         }
         seenCommandIds.insert(cmd.commandId)
-        print("🌐 RemoteControl: received command=\(cmd.command.rawValue) from=\(cmd.fromDeviceId) id=\(cmd.commandId)")
+        log("received command=\(cmd.command.rawValue) from=\(cmd.fromDeviceId) id=\(cmd.commandId)")
 
         guard let player else { return }
         switch cmd.command {
@@ -186,7 +244,10 @@ final class RemoteControlService {
                let stationName = p.stationName,
                let stationId = p.stationId {
                 let station = RadioStation(id: stationId, name: stationName, streamURL: stationUrl, logoURL: nil)
+                log("loading station=\(stationName) url=\(stationUrl)")
                 player.playStation(station)
+            } else {
+                log("loadStation: missing payload fields")
             }
         }
 
@@ -233,6 +294,7 @@ final class RemoteControlService {
             "payload": presenceDict
         ]
         send(joinRef: joinRef, ref: nextRef(), topic: channelTopic, event: "presence", payload: presencePayload)
+        log("tracked presence state=\(state.rawValue)")
     }
 
     private func sendHeartbeat() {
@@ -244,9 +306,11 @@ final class RemoteControlService {
         let array: [Any?] = [joinRef, ref, topic, event, payload]
         guard let data = try? JSONSerialization.data(withJSONObject: array),
               let text = String(data: data, encoding: .utf8) else { return }
-        ws.send(.string(text)) { error in
+        ws.send(.string(text)) { [weak self] error in
             if let error {
-                print("🌐 RemoteControl: send error: \(error)")
+                Task { @MainActor in
+                    self?.log("send error event=\(event): \(error)")
+                }
             }
         }
     }
@@ -254,5 +318,9 @@ final class RemoteControlService {
     private func nextRef() -> String {
         refCounter += 1
         return "\(refCounter)"
+    }
+
+    private func log(_ message: String) {
+        RemoteDebugLogger.shared.log("🌐 \(message)")
     }
 }

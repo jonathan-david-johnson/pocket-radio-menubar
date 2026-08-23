@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var hoveredRowID: String? = nil
     /// Explicitly-opened detail panel (via ⓘ). Persists until closed.
     @State private var detailItem: DetailItem? = nil
+    @State private var showCastPicker = false
 
     init(vm: PlayerViewModel) {
         self._vm = StateObject(wrappedValue: vm)
@@ -221,12 +222,29 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // ── Footer ──
-            HStack(spacing: 16) {
+            HStack(spacing: 0) {
+                Button(action: {
+                    (NSApplication.shared.delegate as? AppDelegate)?.openDebugWindow()
+                }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 14))
+                        .foregroundColor(PocketCastsTheme.primaryIcon02)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("Remote debug log")
+
+                Spacer()
+
                 Button(action: { vm.logout() }) {
                     Text("Log Out").font(.system(size: 13))
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(PocketCastsTheme.primaryText02)
+
+                Text("·")
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                    .padding(.horizontal, 8)
 
                 Button(action: { NSApplication.shared.terminate(nil) }) {
                     Text("Quit").font(.system(size: 13))
@@ -234,7 +252,25 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .foregroundColor(PocketCastsTheme.primaryText02)
                 .keyboardShortcut("q")
+
+                Spacer()
+
+                Button(action: { showCastPicker.toggle() }) {
+                    let isTargeting = vm.remoteControl.activeTargetDeviceId != nil
+                    Image(systemName: isTargeting ? "airplayvideo.badge.plus" : "airplayvideo")
+                        .font(.system(size: 14))
+                        .foregroundColor(isTargeting ? PocketCastsTheme.accent : PocketCastsTheme.primaryIcon02)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showCastPicker, arrowEdge: .top) {
+                    RemoteDevicePickerMacView(remoteControl: vm.remoteControl)
+                }
+                .help(vm.remoteControl.activeTargetDeviceId != nil
+                      ? "Playing on \(vm.remoteControl.presenceList[vm.remoteControl.activeTargetDeviceId!]?.deviceName ?? "device")"
+                      : "Play on\u{2026}")
             }
+            .padding(.horizontal, 8)
             .padding(.bottom, 6)
         }
         .frame(width: 300, height: 380)

@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var playerVM: PlayerViewModel!
     private var scrollTask: Task<Void, Never>?
     private let maxTitleLength = 22
+    private var debugWindow: NSWindow?
 
     private let playingStatusLength: CGFloat = 160
     // Matches ContentView.swift's frame(width: 300, height: 380) so the panel
@@ -236,6 +237,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if !Task.isCancelled {
             await scrollTitle(fullTitle) // loop
         }
+    }
+
+    // MARK: - Debug Window
+
+    @MainActor func openDebugWindow() {
+        if let existing = debugWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let view = RemoteDebugView()
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Remote Debug"
+        window.setContentSize(NSSize(width: 640, height: 400))
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.center()
+        debugWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

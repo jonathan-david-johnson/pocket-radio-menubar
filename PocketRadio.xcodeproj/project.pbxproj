@@ -21,6 +21,9 @@
 		B47CCF9110244C05817260BB /* RemoteControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4A7ACAA549478C8E1B28FE /* RemoteControlService.swift */; };
 		BB000001000000000000001A /* RemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001B /* RemoteCommand.swift */; };
 		BB000002000000000000001A /* RemoteCommandFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000002000000000000001B /* RemoteCommandFixtureTests.swift */; };
+		CC000002000000000000001A /* RemoteDebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000002000000000000001B /* RemoteDebugLogger.swift */; };
+		CC000003000000000000001A /* RemoteDevicePickerMacView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000003000000000000001B /* RemoteDevicePickerMacView.swift */; };
+		CC000004000000000000001A /* RemoteDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000004000000000000001B /* RemoteDebugView.swift */; };
 		8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */; };
 		8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEB2B28ECB490006BF71C /* Constants.swift */; };
 		8C1FEB2D28ECB5ED006BF71C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF328ECA8DF006BF71C /* ContentView.swift */; };
@@ -63,6 +66,9 @@
 		2F4A7ACAA549478C8E1B28FE /* RemoteControlService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlService.swift; sourceTree = "<group>"; };
 		BB000001000000000000001B /* RemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommand.swift; sourceTree = "<group>"; };
 		BB000002000000000000001B /* RemoteCommandFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCommandFixtureTests.swift; sourceTree = "<group>"; };
+		CC000002000000000000001B /* RemoteDebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDebugLogger.swift; sourceTree = "<group>"; };
+		CC000003000000000000001B /* RemoteDevicePickerMacView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDevicePickerMacView.swift; sourceTree = "<group>"; };
+		CC000004000000000000001B /* RemoteDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDebugView.swift; sourceTree = "<group>"; };
 		8C1FEB2828ECB459006BF71C /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
 		8C1FEB2B28ECB490006BF71C /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -121,6 +127,8 @@
 				8C1FEB2128ECB370006BF71C /* Model */,
 				8C1FEAF128ECA8DF006BF71C /* PocketRadioApp.swift */,
 				8C1FEAF328ECA8DF006BF71C /* ContentView.swift */,
+				CC000003000000000000001B /* RemoteDevicePickerMacView.swift */,
+				CC000004000000000000001B /* RemoteDebugView.swift */,
 				8C1FEAF528ECA8E1006BF71C /* Assets.xcassets */,
 				8C1FEAFA28ECA8E1006BF71C /* PocketRadio.entitlements */,
 				8C1FEAF728ECA8E1006BF71C /* Preview Content */,
@@ -171,6 +179,7 @@
 				AA000001000000000000001B /* TrackFingerprinter.swift */,
 				AA000001000000000000002B /* LyricsService.swift */,
 			2F4A7ACAA549478C8E1B28FE /* RemoteControlService.swift */,
+				CC000002000000000000001B /* RemoteDebugLogger.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -336,6 +345,9 @@
 				8C1FEB2928ECB459006BF71C /* PlayerViewModel.swift in Sources */,
 				8C1FEB2C28ECB490006BF71C /* Constants.swift in Sources */,
 				BB000001000000000000001A /* RemoteCommand.swift in Sources */,
+				CC000002000000000000001A /* RemoteDebugLogger.swift in Sources */,
+				CC000003000000000000001A /* RemoteDevicePickerMacView.swift in Sources */,
+				CC000004000000000000001A /* RemoteDebugView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
