@@ -10,6 +10,8 @@ import AVFoundation
 import Combine
 import MediaPlayer
 import OSLog
+import StreamDiagnostics
+import StreamSession
 
 private let acrLog = Logger(subsystem: "com.jdj.pocketradio", category: "ACR")
 private let lyricLog = Logger(subsystem: "com.jdj.pocketradio", category: "Lyrics")
@@ -102,6 +104,113 @@ class PlayerViewModel: ObservableObject {
     private var durationObserver: AnyCancellable?
     private var endObserver: NSObjectProtocol?
     private var timeObserverToken: Any?
+
+    // MARK: - M11-B opt-in session (never persisted)
+    @Published private(set) var streamExperimentMode: StreamExperimentMode = .off
+    @Published private(set) var streamExperimentSnapshot: RadioExperimentSnapshot?
+    @Published private(set) var streamExperimentExportStatus = "Not capturing"
+    private var streamExperimentSession: RadioPlaybackSession?
+    private var pendingExperimentRoute: String?
+    @Published private(set) var appliedTracklist: [TracklistEntry] = []
+    @Published private(set) var streamExperimentLyricReason = "No applied lyric resource"
+    private var appliedHistory: [Occurrence] = []
+    private var appliedOccurrence: Occurrence?
+    private var appliedSelectionKey: String?
+    private var appliedSongSeconds: Double?
+    private var experimentLyricCorrection: TimeInterval = 0
+
+    var isStreamExperimentCapturing: Bool { streamExperimentSession?.isRecording == true }
+
+    /// Read-only Debug diagnostics; never include signed queries or credentials.
+    var streamExperimentSourceName: String {
+        switch currentSource {
+        case .radio(let station): return TracePrivacy.metadata(station.name)
+        case .podcast: return "Podcast (not eligible)"
+        case nil: return "No active station"
+        }
+    }
+
+    var streamExperimentSourceURL: String {
+        guard case .radio(let station) = currentSource else { return "unavailable" }
+        return Self.diagnosticEndpoint(station.streamURL)
+    }
+
+    var streamExperimentItemURL: String {
+        guard let asset = audioPlayer.currentItem?.asset as? AVURLAsset else {
+            return "no URL player item"
+        }
+        return Self.diagnosticEndpoint(asset.url.absoluteString)
+    }
+
+    /// Only render the three public known paths; other hosts and paths may contain
+    /// opaque tokens. Never render user info, queries, fragments or station IDs.
+    private static func diagnosticEndpoint(_ raw: String) -> String {
+        guard let components = URLComponents(string: raw),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else { return "<invalid URL>" }
+        let safeHost = host == "streams.kcrw.com" ? host : "<other host>"
+        let safePath = ["/e24_mp3", "/e24_aac", "/e24_aac/playlist.m3u8"].contains(components.path)
+            ? components.path : "/<other path>"
+        return "\(scheme)://\(safeHost)\(safePath)"
+    }
+
+    var streamExperimentEligibility: String {
+        guard case .radio(let station) = currentSource else {
+            return "no active radio station (select and play KCRW)"
+        }
+        if let reason = StreamExperimentConfiguration.ineligibilityReason(for: station) {
+            return reason
+        }
+        if !isPlaying { return "eligible station; playback stopped" }
+        if streamExperimentSession == nil { return "eligible station; no experimental item (restart playback)" }
+        return "eligible; experimental item active"
+    }
+
+    func beginStreamExperimentCapture(routeCategory: String) {
+        guard streamExperimentMode != .off,
+              streamExperimentSession != nil,
+              case .radio(let station) = currentSource,
+              StreamExperimentConfiguration.isEligible(station), isPlaying else {
+            streamExperimentExportStatus = "Start KCRW in Observe or Apply before capturing"
+            return
+        }
+        // Capture from the start of a new item, not from halfway through its
+        // feed/clock history. Session start, first feed, and samples share one trace.
+        stopPlayback()
+        pendingExperimentRoute = routeCategory
+        startPlayback()
+    }
+
+    func endStreamExperimentCapture() {
+        streamExperimentSession?.finishRecording()
+    }
+
+    func markStreamExperiment(_ marker: String) {
+        streamExperimentSession?.mark(marker)
+    }
+
+    func setStreamExperimentMode(_ mode: StreamExperimentMode) {
+        #if DEBUG
+        guard mode != streamExperimentMode else { return }
+        let wasPlaying = isPlaying
+        let activeStation: RadioStation?
+        if case .radio(let station) = currentSource,
+           StreamExperimentConfiguration.isEligible(station) {
+            activeStation = station
+        } else {
+            activeStation = nil
+        }
+        if activeStation != nil { stopPlayback() }
+        streamExperimentMode = mode
+        if let station = activeStation {
+            nowPlayingTitle = station.name
+            if mode == .off, tracklistStationId == station.id {
+                refreshNowPlayingFromTracklist(for: station)
+            }
+        }
+        if wasPlaying, activeStation != nil { startPlayback() }
+        #endif
+    }
 
     // Throttle for sync/update_episode writes
     private var lastPositionSaveTime: Date?
@@ -499,6 +608,46 @@ class PlayerViewModel: ObservableObject {
 
     // MARK: - Tracklist
 
+    private var isApplyingCandidateToCurrentItem: Bool {
+        guard streamExperimentMode == .applyCandidate,
+              let session = streamExperimentSession,
+              audioPlayer.currentItem === session.item,
+              case .radio(let station) = currentSource else { return false }
+        return StreamExperimentConfiguration.isEligible(station)
+    }
+
+    /// Preserve browsing of other stations; replace only the active KCRW
+    /// history shown under its own pill while Apply has an active item.
+    var visibleTracklist: [TracklistEntry] {
+        if isApplyingCandidateToCurrentItem,
+           case .radio(let station) = currentSource,
+           case .stream(let index) = selectedPill,
+           favoriteStations.indices.contains(index),
+           favoriteStations[index].id == station.id {
+            return appliedTracklist
+        }
+        return tracklist
+    }
+
+    /// An open lyric detail retains its original row when feed history is
+    /// rebuilt. TracklistEntry.id is a new UUID on each rebuild, so match the
+    /// selected occurrence's song identity rather than that transient row ID.
+    static func matchesAppliedOccurrence(_ entry: TracklistEntry, _ occurrence: Occurrence) -> Bool {
+        occurrence.kind == "trackplay" && entry.title == occurrence.title
+            && entry.artist == occurrence.artist && entry.playedAt == occurrence.playedAt
+    }
+
+    func isCurrentTracklistEntry(_ entry: TracklistEntry) -> Bool {
+        if isApplyingCandidateToCurrentItem {
+            guard let current = appliedOccurrence,
+                  Self.matchesAppliedOccurrence(entry, current),
+                  appliedTracklist.contains(where: { Self.matchesAppliedOccurrence($0, current) })
+            else { return false }
+            return true
+        }
+        return tracklist.first.map { $0.title == entry.title && $0.artist == entry.artist } ?? false
+    }
+
     private func startTracklist(for station: RadioStation) {
         tracklistRefreshTask?.cancel()
         tracklistRefreshTask = nil
@@ -534,6 +683,10 @@ class PlayerViewModel: ObservableObject {
     /// the station name. Falls back to station.name when no track is known.
     private func refreshNowPlayingFromTracklist(for station: RadioStation) {
         guard case .radio(let current) = currentSource, current.id == station.id else { return }
+        // Apply is fed by the active item's clock, never by this independent
+        // browsing/legacy tracklist request (including late callbacks).
+        if streamExperimentMode == .applyCandidate,
+           StreamExperimentConfiguration.isEligible(current) { return }
         if let top = tracklist.first {
             nowPlayingTitle = "\(top.title) — \(top.artist)"
             loadLyrics(for: top)
@@ -556,9 +709,137 @@ class PlayerViewModel: ObservableObject {
         stopLyricTimer()
     }
 
+    // MARK: - Applied same-item publication
+
+    private func resetAppliedPublication() {
+        stopLyricTimer()
+        appliedHistory = []
+        appliedTracklist = []
+        appliedOccurrence = nil
+        appliedSelectionKey = nil
+        appliedSongSeconds = nil
+        experimentLyricCorrection = 0
+        lyricOffset = 0
+        currentLyric = ""
+        currentLyricLineIndex = 0
+        showLyrics = false
+        streamExperimentLyricReason = "No applied lyric resource"
+        if case .radio(let station) = currentSource, nowPlayingTitle != station.name {
+            nowPlayingTitle = station.name
+            notifyNowPlayingChanged()
+        }
+    }
+
+    private func publishAppliedSnapshot(_ snapshot: RadioExperimentSnapshot) {
+        guard isApplyingCandidateToCurrentItem,
+              snapshot.generation == streamExperimentSession?.generation,
+              snapshot.endpoint == StreamExperimentConfiguration.measuredEndpoint,
+              snapshot.trigger == .playerSample,
+              case .radio(let station) = currentSource else { return }
+
+        // Feed callbacks may update evidence, but neither history display nor
+        // current publication advances until a sample from this same item.
+        if appliedHistory != snapshot.history {
+            appliedHistory = snapshot.history
+            appliedTracklist = snapshot.history.reversed().compactMap { occurrence in
+                guard occurrence.kind == "trackplay",
+                      let title = occurrence.title, !title.isEmpty,
+                      let artist = occurrence.artist, !artist.isEmpty else { return nil }
+                return TracklistEntry(title: title, artist: artist,
+                                      album: occurrence.album,
+                                      albumArtURL: occurrence.artworkURL.flatMap(URL.init(string:)),
+                                      playedAt: occurrence.playedAt)
+            }
+        }
+
+        guard let selection = RadioApplySelection(snapshot: snapshot) else {
+            if appliedSelectionKey != nil || showLyrics { stopLyricTimer() }
+            appliedOccurrence = nil
+            appliedSelectionKey = nil
+            appliedSongSeconds = nil
+            experimentLyricCorrection = 0
+            lyricOffset = 0
+            currentLyric = ""
+            showLyrics = false
+            streamExperimentLyricReason = snapshot.selectedOccurrence == nil
+                ? snapshot.reason : "Non-song occurrence; timed lyrics unavailable"
+            if nowPlayingTitle != station.name {
+                nowPlayingTitle = station.name
+                notifyNowPlayingChanged()
+            }
+            return
+        }
+
+        let occurrence = selection.occurrence
+        let key = "\(snapshot.generation.uuidString)|\(occurrence.id.rawValue)|\(occurrence.revision)"
+        let changed = appliedSelectionKey != key
+        appliedOccurrence = occurrence
+        appliedSongSeconds = selection.songSeconds
+        if nowPlayingTitle != selection.title {
+            nowPlayingTitle = selection.title
+            notifyNowPlayingChanged()
+        }
+        if changed {
+            beginAppliedLyrics(for: occurrence, key: key, generation: snapshot.generation)
+        } else {
+            refreshAppliedLyricLine()
+        }
+    }
+
+    private func beginAppliedLyrics(for occurrence: Occurrence, key: String, generation: UUID) {
+        stopLyricTimer()
+        appliedSelectionKey = key
+        experimentLyricCorrection = 0
+        lyricOffset = 0
+        currentLyric = ""
+        currentLyricLineIndex = 0
+        showLyrics = true
+        lyricStatus = .fetching
+        streamExperimentLyricReason = "Looking for exact lyrics; recording unverified"
+        guard let title = occurrence.title, let artist = occurrence.artist else { return }
+        lyricFetchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            let result = await LyricsService.shared.fetch(artist: artist, title: title,
+                                                           album: occurrence.album)
+            guard let self, !Task.isCancelled,
+                  self.isApplyingCandidateToCurrentItem,
+                  self.streamExperimentSession?.generation == generation,
+                  self.appliedSelectionKey == key,
+                  self.appliedOccurrence?.id == occurrence.id else { return }
+            if let result, result.isExactSynced {
+                self.lyricLines = result.lines
+                self.lyricDuration = result.duration
+                self.hasSyncedLyrics = true
+                self.lyricStatus = .found
+                self.streamExperimentLyricReason = "Exact title/artist lookup; recording not verified"
+                self.refreshAppliedLyricLine()
+            } else if let result, result.provenance == .exact,
+                      let plain = result.plain, !plain.isEmpty {
+                self.currentLyric = plain
+                self.lyricStatus = .found
+                self.streamExperimentLyricReason = "Untimed lyrics only"
+            } else {
+                self.lyricStatus = .notFound
+                self.streamExperimentLyricReason = result?.provenance == .search
+                    ? "Fuzzy lyric match: timed highlighting disabled"
+                    : "No exact lyric resource: timed highlighting disabled"
+            }
+        }
+    }
+
+    private func refreshAppliedLyricLine() {
+        guard isApplyingCandidateToCurrentItem, hasSyncedLyrics,
+              let songSeconds = appliedSongSeconds else { return }
+        updateLyricLine(at: songSeconds + experimentLyricCorrection)
+    }
+
     // MARK: - Lyrics
 
     func loadLyrics(for entry: TracklistEntry) {
+        if streamExperimentMode == .applyCandidate,
+           case .radio(let station) = currentSource,
+           StreamExperimentConfiguration.isEligible(station) { return }
         let songKey = "\(entry.artist.lowercased())|\(entry.title.lowercased())"
 
         // Already showing synced lyrics for this exact song — keep timer running.
@@ -620,6 +901,16 @@ class PlayerViewModel: ObservableObject {
 
     /// Nudge the live sync correction and immediately re-evaluate the current line.
     func adjustLyricOffset(by delta: TimeInterval) {
+        if streamExperimentMode == .applyCandidate,
+           case .radio(let station) = currentSource,
+           StreamExperimentConfiguration.isEligible(station) {
+            // Recording-only correction. Never read, modify, or save the
+            // existing per-station lyric offset in Apply mode.
+            experimentLyricCorrection += delta
+            lyricOffset = experimentLyricCorrection
+            refreshAppliedLyricLine()
+            return
+        }
         lyricOffset += delta
         if let startDate = lyricStartDate {
             updateLyricLine(at: Date().timeIntervalSince(startDate) + lyricOffset)
@@ -689,7 +980,8 @@ class PlayerViewModel: ObservableObject {
     // MARK: - One-shot ACR identification
 
     func identifyNow() {
-        guard !isIdentifying, case .radio(let station) = currentSource else { return }
+        guard !isIdentifying, streamExperimentSession == nil,
+              case .radio(let station) = currentSource else { return }
         guard let url = URL(string: station.streamURL) else { return }
         let httpsURL = upgradeToHTTPS(url)
         acrLog.debug("identifyNow: \(station.name, privacy: .public) url=\(httpsURL.absoluteString, privacy: .public)")
@@ -697,7 +989,7 @@ class PlayerViewModel: ObservableObject {
         stopFingerprinter()
         let fp = TrackFingerprinter(streamURL: httpsURL)
         fp.onResult = { [weak self] result in
-            guard let self else { return }
+            guard let self, self.streamExperimentSession == nil else { return }
             self.isIdentifying = false
             acrLog.debug("identified '\(result.displayTitle, privacy: .public)' confidence=\(result.confidence)")
             self.showToast("\(result.displayTitle)")
@@ -716,7 +1008,9 @@ class PlayerViewModel: ObservableObject {
 
     @MainActor
     private func insertACRResult(_ result: TrackFingerprintResult) async {
+        guard streamExperimentSession == nil else { return }
         let artURL = await fetchITunesArtwork(title: result.title, artist: result.artist)
+        guard streamExperimentSession == nil else { return }
         let entry = TracklistEntry(
             title: result.title,
             artist: result.artist,
@@ -754,6 +1048,7 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Track Identification Mode (legacy poll mode, kept for future use)
 
     func toggleTrackIdMode() {
+        guard streamExperimentSession == nil else { return }
         switch trackIdMode {
         case .tracklist:
             trackIdMode = .acr
@@ -761,7 +1056,8 @@ class PlayerViewModel: ObservableObject {
                 guard let url = URL(string: station.streamURL) else { return }
                 let fp = TrackFingerprinter(streamURL: upgradeToHTTPS(url))
                 fp.onResult = { [weak self] result in
-                    guard let self, self.trackIdMode == .acr else { return }
+                    guard let self, self.trackIdMode == .acr,
+                          self.streamExperimentSession == nil else { return }
                     self.nowPlayingTitle = result.displayTitle
                     NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
                 }
@@ -980,6 +1276,12 @@ class PlayerViewModel: ObservableObject {
         timeObserverToken = audioPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             self.updateScrubTimes()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.streamExperimentSession?.sample(currentItem: self.audioPlayer.currentItem,
+                                                     rate: self.audioPlayer.rate,
+                                                     status: self.audioPlayer.timeControlStatus)
+            }
             self.objectWillChange.send()
             self.maybeSavePosition()
             self.updateNowPlayingInfo(force: false)
@@ -1516,7 +1818,8 @@ class PlayerViewModel: ObservableObject {
                 if let url = URL(string: ep.url) { return upgradeToHTTPS(url) }
                 return Constants.streamURL
             case .radio(let station):
-                if let url = URL(string: station.streamURL) {
+                if let url = StreamExperimentConfiguration.resolvedURL(for: station,
+                                                                         mode: streamExperimentMode) {
                     return upgradeToHTTPS(url)
                 }
                 return Constants.streamURL
@@ -1531,8 +1834,60 @@ class PlayerViewModel: ObservableObject {
         }
 
         print("🎵 PocketRadio: Starting playback — \(url)")
+        streamExperimentSession?.stop()
+        streamExperimentSession = nil
+        streamExperimentSnapshot = nil
+        if streamExperimentMode == .applyCandidate,
+           case .radio(let station) = currentSource,
+           StreamExperimentConfiguration.isEligible(station),
+           url == StreamExperimentConfiguration.measuredEndpoint {
+            lyricOffsetSaveTask?.cancel()
+            lyricOffsetSaveTask = nil
+            resetAppliedPublication()
+        }
         let playerItem = AVPlayerItem(url: url)
         audioPlayer.replaceCurrentItem(with: playerItem)
+        if streamExperimentMode != .off,
+           case .radio(let station) = currentSource,
+           StreamExperimentConfiguration.isEligible(station),
+           url == StreamExperimentConfiguration.measuredEndpoint {
+            stopFingerprinter()
+            trackIdMode = .tracklist
+            let feedClient = RadioFeedClient()
+            let session = RadioPlaybackSession(item: playerItem, endpoint: url,
+                                               mode: streamExperimentMode,
+                                               fetchFeed: { await feedClient.fetch() })
+            session.onSnapshot = { [weak self, weak session] snapshot in
+                guard let self, let session, self.streamExperimentSession === session,
+                      self.audioPlayer.currentItem === playerItem else { return }
+                self.streamExperimentSnapshot = snapshot
+                if self.streamExperimentMode == .applyCandidate {
+                    self.publishAppliedSnapshot(snapshot)
+                }
+            }
+            session.legacyTitle = { [weak self] in
+                guard let self else { return "" }
+                if self.streamExperimentMode == .applyCandidate {
+                    guard self.tracklistStationId == station.id else { return "" }
+                    return self.tracklist.first.map { "\($0.title) — \($0.artist)" } ?? station.name
+                }
+                return self.nowPlayingTitle
+            }
+            if streamExperimentMode == .applyCandidate {
+                session.publishedTitle = { [weak self] in self?.nowPlayingTitle ?? "" }
+            }
+            session.onRecorderStatus = { [weak self, weak session] status in
+                guard let self, let session, self.streamExperimentSession === session else { return }
+                self.streamExperimentExportStatus = status
+            }
+            streamExperimentSession = session
+            streamExperimentSnapshot = session.snapshot
+            if let route = pendingExperimentRoute {
+                do { try session.beginRecording(routeCategory: route) }
+                catch { streamExperimentExportStatus = "Capture failed to start" }
+            }
+        }
+        pendingExperimentRoute = nil
         lastPositionSaveTime = nil
         lastSavedPosition = -1
         isScrubbing = false
@@ -1566,6 +1921,12 @@ class PlayerViewModel: ObservableObject {
     }
 
     private func stopPlayback() {
+        if streamExperimentSession?.mode == .applyCandidate {
+            resetAppliedPublication()
+        }
+        streamExperimentSession?.stop()
+        streamExperimentSession = nil
+        streamExperimentSnapshot = nil
         stopFingerprinter()
         trackIdMode = .tracklist
         print("🎵 PocketRadio: Stopping playback")

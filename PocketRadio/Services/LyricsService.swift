@@ -1,5 +1,11 @@
 import Foundation
 
+enum LyricProvenance {
+    case exact
+    case search
+    case unverified
+}
+
 struct LyricLine {
     let timestamp: TimeInterval
     let text: String
@@ -10,14 +16,19 @@ struct LyricsResult {
     let plain: String?
     /// Track length in seconds from lrclib, used to detect "between tracks".
     let duration: TimeInterval?
+    let provenance: LyricProvenance
 
-    init(lines: [LyricLine], plain: String?, duration: TimeInterval? = nil) {
+    init(lines: [LyricLine], plain: String?, duration: TimeInterval? = nil,
+         provenance: LyricProvenance = .unverified) {
         self.lines = lines
         self.plain = plain
         self.duration = duration
+        self.provenance = provenance
     }
 
     var hasSynced: Bool { !lines.isEmpty }
+    /// Apply mode must never time-highlight a search/fuzzy or unverified result.
+    var isExactSynced: Bool { hasSynced && provenance == .exact }
 }
 
 final class LyricsService {
@@ -67,7 +78,7 @@ final class LyricsService {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-            return Self.parseRecord(json)
+            return Self.parseRecord(json, provenance: .exact)
         } catch {
             return nil
         }
@@ -86,19 +97,21 @@ final class LyricsService {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
             guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
-            let records = arr.compactMap { Self.parseRecord($0) }
+            let records = arr.map { Self.parseRecord($0, provenance: .search) }
             return records.first(where: { $0.hasSynced }) ?? records.first
         } catch {
             return nil
         }
     }
 
-    private static func parseRecord(_ json: [String: Any]) -> LyricsResult {
+    private static func parseRecord(_ json: [String: Any],
+                                    provenance: LyricProvenance) -> LyricsResult {
         let synced = json["syncedLyrics"] as? String
         let plain = json["plainLyrics"] as? String
         let duration = json["duration"] as? Double
         let lines = synced.map { LyricsService.shared.parseLRC($0) } ?? []
-        return LyricsResult(lines: lines, plain: plain, duration: duration)
+        return LyricsResult(lines: lines, plain: plain, duration: duration,
+                            provenance: provenance)
     }
 
     /// Strip trailing qualifier groups like "(Edit)", "(CLEAN)", "(Radio Edit)",
