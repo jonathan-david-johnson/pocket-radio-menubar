@@ -6,6 +6,8 @@ enum LabCommand {
     case help
     case capture(CaptureOptions)
     case replay(URL)
+    case select(SelectionOptions)
+    case compare(SelectionComparisonOptions)
 }
 
 enum LabDispatch {
@@ -17,6 +19,9 @@ enum LabDispatch {
                          [--duration SECONDS] [--feed-interval SECONDS]
                          [--feed-url URL | --no-feed] [--muted]
       stream-lab replay FILE
+      stream-lab select TRACE --annotations FILE [--offset SECONDS]
+      stream-lab compare TRACE ANNOTATIONS TRACE ANNOTATIONS [TRACE ANNOTATIONS ...]
+                         [--offset SECONDS]
       stream-lab help
 
     CAPTURE
@@ -34,6 +39,14 @@ enum LabDispatch {
 
     REPLAY
       Reads only the named trace file. It contacts no stream, feed, or account.
+
+    SELECT
+      Replays occurrence selection from a trace and annotation sidecar without network access.
+      --offset SECONDS      Feed-to-program-date offset (default 160)
+
+    COMPARE
+      Produces one deterministic primary, sensitivity, and leave-one-session-out report.
+      Every positional trace path must be followed by its annotation path.
     """
 
     static func parse(_ arguments: [String]) throws -> LabCommand {
@@ -49,6 +62,10 @@ enum LabDispatch {
                 throw UsageError("replay takes exactly one trace file path")
             }
             return .replay(URL(fileURLWithPath: path))
+        case "select":
+            return .select(try SelectionOptions(rest))
+        case "compare":
+            return .compare(try SelectionComparisonOptions(rest))
         default:
             throw UsageError("Unknown command \(String(reflecting: command))")
         }

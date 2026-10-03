@@ -60,6 +60,85 @@ struct CaptureOptions {
     }
 }
 
+struct SelectionOptions {
+    let traceURL: URL
+    let annotationsURL: URL
+    let offsetSeconds: Double
+
+    init(_ arguments: [String]) throws {
+        guard let tracePath = arguments.first, !tracePath.isEmpty, !tracePath.hasPrefix("--") else {
+            throw UsageError("select requires TRACE --annotations FILE")
+        }
+        var annotationPath: String?
+        var offsetText: String?
+        var index = 1
+        while index < arguments.count {
+            let key = arguments[index]
+            guard ["--annotations", "--offset"].contains(key),
+                  index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
+                throw UsageError("Unknown, duplicate, or incomplete select option")
+            }
+            switch key {
+            case "--annotations":
+                guard annotationPath == nil else { throw UsageError("Duplicate option --annotations") }
+                annotationPath = arguments[index + 1]
+            case "--offset":
+                guard offsetText == nil else { throw UsageError("Duplicate option --offset") }
+                offsetText = arguments[index + 1]
+            default: break
+            }
+            index += 2
+        }
+        guard let annotationPath, !annotationPath.isEmpty else {
+            throw UsageError("select requires --annotations FILE")
+        }
+        guard let offset = Double(offsetText ?? "160"), offset.isFinite,
+              (-3600...3600).contains(offset) else {
+            throw UsageError("select offset must be a finite value from -3600 through 3600 seconds")
+        }
+        self.traceURL = URL(fileURLWithPath: tracePath)
+        self.annotationsURL = URL(fileURLWithPath: annotationPath)
+        self.offsetSeconds = offset
+    }
+}
+
+struct SelectionComparisonOptions {
+    struct Pair {
+        let traceURL: URL
+        let annotationsURL: URL
+    }
+
+    let pairs: [Pair]
+    let offsetSeconds: Double
+
+    init(_ arguments: [String]) throws {
+        var positional = arguments
+        var offsetText: String?
+        if let offsetIndex = positional.firstIndex(of: "--offset") {
+            guard offsetIndex == positional.count - 2 else {
+                throw UsageError("compare offset must be the final option")
+            }
+            offsetText = positional[offsetIndex + 1]
+            positional.removeSubrange(offsetIndex...)
+        }
+        guard positional.count >= 4, positional.count.isMultiple(of: 2),
+              positional.allSatisfy({ !$0.isEmpty && !$0.hasPrefix("--") }) else {
+            throw UsageError("compare requires at least two TRACE ANNOTATIONS pairs")
+        }
+        guard let offset = Double(offsetText ?? "160"), offset.isFinite,
+              (-3600...3600).contains(offset) else {
+            throw UsageError("compare offset must be a finite value from -3600 through 3600 seconds")
+        }
+        var parsed: [Pair] = []
+        for index in stride(from: 0, to: positional.count, by: 2) {
+            parsed.append(Pair(traceURL: URL(fileURLWithPath: positional[index]),
+                               annotationsURL: URL(fileURLWithPath: positional[index + 1])))
+        }
+        pairs = parsed
+        offsetSeconds = offset
+    }
+}
+
 struct UsageError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
