@@ -1,11 +1,39 @@
+import AVFoundation
 import Foundation
+import MediaPlayer
 import StreamSession
 
-/// Session-only M11-B configuration. Never persisted to station records or saved offsets.
+/// Ordinary alignment and explicit Debug comparison controls. Never persisted to stations or offsets.
 enum StreamExperimentMode: String, CaseIterable {
     case off = "Off"
     case observeOnly = "Observe only"
     case applyCandidate = "Apply candidate"
+}
+
+struct RadioLyricOffsetPersistence {
+    let read: (String) -> TimeInterval?
+    let write: (String, Int) async throws -> Void
+}
+
+/// Replace external boundaries without changing publication rules. Defaults are the app paths.
+@MainActor
+struct RadioPlaybackDependencies {
+    var makeItem: (URL) -> AVPlayerItem = { AVPlayerItem(url: $0) }
+    var play: (AVPlayer) -> Void = { $0.play() }
+    var fetchFeed: () async -> RadioFeedResult = { await RadioFeedClient().fetch() }
+    var fetchTracklist: (RadioStation) async -> [TracklistEntry] = { await PocketCastsAPI.fetchTracklist(for: $0) }
+    var fetchLyrics: (String, String, String?) async -> LyricsResult? = {
+        await LyricsService.shared.fetch(artist: $0, title: $1, album: $2)
+    }
+    var lyricOffsets: RadioLyricOffsetPersistence?
+    var lyricDebounce: () async -> Void = { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+    var makeSession: (AVPlayerItem, URL, StreamExperimentMode, @escaping @MainActor () async -> RadioFeedResult) -> RadioPlaybackSession = {
+        RadioPlaybackSession(item: $0, endpoint: $1, mode: $2, fetchFeed: $3)
+    }
+    var sample: (RadioPlaybackSession, AVPlayer) -> Void = {
+        $0.sample(currentItem: $1.currentItem, rate: $1.rate, status: $1.timeControlStatus)
+    }
+    var publishNowPlaying: ([String: Any]?) -> Void = { MPNowPlayingInfoCenter.default().nowPlayingInfo = $0 }
 }
 
 struct StreamExperimentConfiguration {
@@ -52,8 +80,13 @@ struct StreamExperimentConfiguration {
         ineligibilityReason(for: station) == nil
     }
 
+    /// Observe is the only legacy-publication override. Off is ordinary alignment.
+    static func publishesAlignedSelection(for station: RadioStation, mode: StreamExperimentMode) -> Bool {
+        isEligible(station) && mode != .observeOnly
+    }
+
     static func resolvedURL(for station: RadioStation, mode: StreamExperimentMode) -> URL? {
-        if mode != .off, isEligible(station) { return measuredEndpoint }
+        if isEligible(station) { return measuredEndpoint }
         return URL(string: station.streamURL)
     }
 }

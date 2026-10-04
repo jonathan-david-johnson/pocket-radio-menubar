@@ -59,6 +59,8 @@ final class RadioPlaybackSession {
 
     private let fetchFeed: @MainActor () async -> RadioFeedResult
     private var recorder: StreamExperimentRecorder?
+    typealias RecorderFactory = (UUID, URL, String, Double, StreamExperimentMode) throws -> StreamExperimentRecorder
+    private let makeRecorder: RecorderFactory
     private let startedUptime = ProcessInfo.processInfo.systemUptime
     private var state = SessionState(historyPolicy: StreamExperimentConfiguration.historyPolicy,
                                      selectionPolicy: StreamExperimentConfiguration.selectionPolicy,
@@ -72,11 +74,16 @@ final class RadioPlaybackSession {
     init(item: AVPlayerItem, endpoint: URL,
          mode: StreamExperimentMode = .observeOnly,
          fetchFeed: @escaping @MainActor () async -> RadioFeedResult,
-         startPolling: Bool = true) {
+         startPolling: Bool = true,
+         makeRecorder: RecorderFactory? = nil) {
         self.item = item
         self.endpoint = endpoint
         self.mode = mode
         self.fetchFeed = fetchFeed
+        self.makeRecorder = makeRecorder ?? { id, endpoint, route, elapsed, mode in
+            try StreamExperimentRecorder(sessionID: id, endpoint: endpoint, routeCategory: route,
+                                         sessionElapsedAtStart: elapsed, mode: mode)
+        }
         snapshot = RadioExperimentSnapshot(generation: generation, endpoint: endpoint,
                                            feedTop: nil, candidate: nil, candidateID: nil,
                                            selectedOccurrence: nil, history: [], trigger: nil,
@@ -101,11 +108,13 @@ final class RadioPlaybackSession {
     var isRecording: Bool { recorder?.isRecording == true }
 
     func beginRecording(routeCategory: String) throws {
-        guard !isStopped, recorder == nil else { throw TraceError.invalid("capture already started or item stopped") }
-        recorder = try StreamExperimentRecorder(sessionID: generation, endpoint: endpoint,
-                                                routeCategory: routeCategory,
-                                                sessionElapsedAtStart: elapsedNow, mode: mode)
+        #if DEBUG
+        guard mode != .off, !isStopped, recorder == nil else { throw TraceError.invalid("capture already started or item stopped") }
+        recorder = try makeRecorder(generation, endpoint, routeCategory, elapsedNow, mode)
         onRecorderStatus?("Capturing same-player observations (\(routeCategory))")
+        #else
+        throw TraceError.invalid("capture is Debug-only")
+        #endif
     }
 
     func finishRecording(reason: String = "user") {
@@ -115,8 +124,10 @@ final class RadioPlaybackSession {
     }
 
     func mark(_ name: String) {
-        guard !isStopped else { return }
+        #if DEBUG
+        guard mode != .off, !isStopped else { return }
         recorder?.marker(name)
+        #endif
     }
 
     private var elapsedNow: Double { ProcessInfo.processInfo.systemUptime - startedUptime }

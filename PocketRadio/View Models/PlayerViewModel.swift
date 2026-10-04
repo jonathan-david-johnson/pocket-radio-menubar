@@ -105,14 +105,31 @@ class PlayerViewModel: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var timeObserverToken: Any?
 
-    // MARK: - M11-B opt-in session (never persisted)
+    // MARK: - Ordinary alignment and Debug comparison (never persisted)
     @Published private(set) var streamExperimentMode: StreamExperimentMode = .off
     @Published private(set) var streamExperimentSnapshot: RadioExperimentSnapshot?
     @Published private(set) var streamExperimentExportStatus = "Not capturing"
     private var streamExperimentSession: RadioPlaybackSession?
+    private var alignmentSource: RadioStation?
     private var pendingExperimentRoute: String?
     @Published private(set) var appliedTracklist: [TracklistEntry] = []
     @Published private(set) var streamExperimentLyricReason = "No applied lyric resource"
+    @Published private(set) var alignedLyricsResult: LyricsResult?
+
+    struct LiveLyricSelection {
+        let result: LyricsResult?
+        let highlightedLineIndex: Int?
+        let isLoading: Bool
+    }
+
+    /// LIVE detail reads this same occurrence/resource/index; history never changes it.
+    func liveLyricSelection(for entry: TracklistEntry) -> LiveLyricSelection? {
+        guard usesAlignedRadioPlayback, isCurrentTracklistEntry(entry) else { return nil }
+        return LiveLyricSelection(result: alignedLyricsResult,
+                                  highlightedLineIndex: hasSyncedLyrics && lyricStatus == .found
+                                    ? currentLyricLineIndex : nil,
+                                  isLoading: lyricStatus == .fetching)
+    }
     private var appliedHistory: [Occurrence] = []
     private var appliedOccurrence: Occurrence?
     private var appliedSelectionKey: String?
@@ -162,11 +179,12 @@ class PlayerViewModel: ObservableObject {
             return reason
         }
         if !isPlaying { return "eligible station; playback stopped" }
-        if streamExperimentSession == nil { return "eligible station; no experimental item (restart playback)" }
-        return "eligible; experimental item active"
+        if streamExperimentSession == nil { return "eligible station; no alignment item (restart playback)" }
+        return "eligible; same-item alignment active"
     }
 
     func beginStreamExperimentCapture(routeCategory: String) {
+        #if DEBUG
         guard streamExperimentMode != .off,
               streamExperimentSession != nil,
               case .radio(let station) = currentSource,
@@ -179,6 +197,7 @@ class PlayerViewModel: ObservableObject {
         stopPlayback()
         pendingExperimentRoute = routeCategory
         startPlayback()
+        #endif
     }
 
     func endStreamExperimentCapture() {
@@ -186,7 +205,9 @@ class PlayerViewModel: ObservableObject {
     }
 
     func markStreamExperiment(_ marker: String) {
+        #if DEBUG
         streamExperimentSession?.mark(marker)
+        #endif
     }
 
     func setStreamExperimentMode(_ mode: StreamExperimentMode) {
@@ -273,13 +294,18 @@ class PlayerViewModel: ObservableObject {
 
     // MARK: - Init
 
-    init() {
+    private let playbackDependencies: RadioPlaybackDependencies
+
+    init(playbackDependencies: RadioPlaybackDependencies? = nil,
+         startAuthentication: Bool = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+            && NSClassFromString("XCTestCase") == nil) {
+        self.playbackDependencies = playbackDependencies ?? RadioPlaybackDependencies()
+        remoteControl.player = self
+        guard startAuthentication else { return }
         // Dev convenience: auto-login with hardcoded test credentials.
         // Keychain reads trigger macOS permission popups; skip them.
         self.loginEmail = Constants.testEmail
         self.loginPassword = Constants.testPassword
-
-        remoteControl.player = self
 
         Task {
             await login()
@@ -391,7 +417,7 @@ class PlayerViewModel: ObservableObject {
         stopLyricTimer()
         currentLyric = ""
         showLyrics = false
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        playbackDependencies.publishNowPlaying(nil)
     }
 
     // MARK: - Skip Settings (read-only)
@@ -608,18 +634,32 @@ class PlayerViewModel: ObservableObject {
 
     // MARK: - Tracklist
 
+    /// Source-level isolation remains active while paused or waiting for an item.
+    var usesAlignedRadioPlayback: Bool {
+        guard case .radio(let station) = currentSource else { return false }
+        return StreamExperimentConfiguration.publishesAlignedSelection(for: station, mode: streamExperimentMode)
+    }
+
+    /// Presented in normal UI, not just experiment diagnostics.
+    var alignmentUnavailableReason: String? {
+        guard usesAlignedRadioPlayback, appliedOccurrence == nil else { return nil }
+        let reason = streamExperimentLyricReason
+        return reason.lowercased().hasPrefix("alignment unavailable") ? reason : "Alignment unavailable: \(reason)"
+    }
+
     private var isApplyingCandidateToCurrentItem: Bool {
-        guard streamExperimentMode == .applyCandidate,
+        guard usesAlignedRadioPlayback,
               let session = streamExperimentSession,
               audioPlayer.currentItem === session.item,
-              case .radio(let station) = currentSource else { return false }
+              case .radio(let station) = currentSource,
+              station == alignmentSource else { return false }
         return StreamExperimentConfiguration.isEligible(station)
     }
 
     /// Preserve browsing of other stations; replace only the active KCRW
-    /// history shown under its own pill while Apply has an active item.
+    /// history shown under its own pill, including an empty paused/unavailable state.
     var visibleTracklist: [TracklistEntry] {
-        if isApplyingCandidateToCurrentItem,
+        if usesAlignedRadioPlayback,
            case .radio(let station) = currentSource,
            case .stream(let index) = selectedPill,
            favoriteStations.indices.contains(index),
@@ -638,8 +678,8 @@ class PlayerViewModel: ObservableObject {
     }
 
     func isCurrentTracklistEntry(_ entry: TracklistEntry) -> Bool {
-        if isApplyingCandidateToCurrentItem {
-            guard let current = appliedOccurrence,
+        if usesAlignedRadioPlayback {
+            guard isApplyingCandidateToCurrentItem, let current = appliedOccurrence,
                   Self.matchesAppliedOccurrence(entry, current),
                   appliedTracklist.contains(where: { Self.matchesAppliedOccurrence($0, current) })
             else { return false }
@@ -665,7 +705,7 @@ class PlayerViewModel: ObservableObject {
         tracklistRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self = self else { return }
-                let entries = await PocketCastsAPI.fetchTracklist(for: station)
+                let entries = await self.playbackDependencies.fetchTracklist(station)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     self.tracklist = entries
@@ -683,10 +723,9 @@ class PlayerViewModel: ObservableObject {
     /// the station name. Falls back to station.name when no track is known.
     private func refreshNowPlayingFromTracklist(for station: RadioStation) {
         guard case .radio(let current) = currentSource, current.id == station.id else { return }
-        // Apply is fed by the active item's clock, never by this independent
+        // Aligned playback is fed by the active item's clock, never by this independent
         // browsing/legacy tracklist request (including late callbacks).
-        if streamExperimentMode == .applyCandidate,
-           StreamExperimentConfiguration.isEligible(current) { return }
+        if usesAlignedRadioPlayback { return }
         if let top = tracklist.first {
             nowPlayingTitle = "\(top.title) — \(top.artist)"
             loadLyrics(for: top)
@@ -723,7 +762,7 @@ class PlayerViewModel: ObservableObject {
         currentLyric = ""
         currentLyricLineIndex = 0
         showLyrics = false
-        streamExperimentLyricReason = "No applied lyric resource"
+        streamExperimentLyricReason = "waiting for paired player clock and feed"
         if case .radio(let station) = currentSource, nowPlayingTitle != station.name {
             nowPlayingTitle = station.name
             notifyNowPlayingChanged()
@@ -798,15 +837,18 @@ class PlayerViewModel: ObservableObject {
         streamExperimentLyricReason = "Looking for exact lyrics; recording unverified"
         guard let title = occurrence.title, let artist = occurrence.artist else { return }
         lyricFetchTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let dependencies = self?.playbackDependencies else { return }
+            await dependencies.lyricDebounce()
             guard !Task.isCancelled else { return }
-            let result = await LyricsService.shared.fetch(artist: artist, title: title,
-                                                           album: occurrence.album)
+            let result = await dependencies.fetchLyrics(artist, title, occurrence.album)
             guard let self, !Task.isCancelled,
                   self.isApplyingCandidateToCurrentItem,
                   self.streamExperimentSession?.generation == generation,
                   self.appliedSelectionKey == key,
                   self.appliedOccurrence?.id == occurrence.id else { return }
+            self.alignedLyricsResult = result
+            self.experimentLyricCorrection = 0
+            self.lyricOffset = 0
             if let result, result.isExactSynced {
                 self.lyricLines = result.lines
                 self.lyricDuration = result.duration
@@ -837,9 +879,7 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Lyrics
 
     func loadLyrics(for entry: TracklistEntry) {
-        if streamExperimentMode == .applyCandidate,
-           case .radio(let station) = currentSource,
-           StreamExperimentConfiguration.isEligible(station) { return }
+        if usesAlignedRadioPlayback { return }
         let songKey = "\(entry.artist.lowercased())|\(entry.title.lowercased())"
 
         // Already showing synced lyrics for this exact song — keep timer running.
@@ -855,14 +895,10 @@ class PlayerViewModel: ObservableObject {
 
         lyricFetchTask = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
+            await self.playbackDependencies.lyricDebounce()
             if Task.isCancelled { return }
 
-            let result = await LyricsService.shared.fetch(
-                artist: entry.artist,
-                title: entry.title,
-                album: entry.album
-            )
+            let result = await self.playbackDependencies.fetchLyrics(entry.artist, entry.title, entry.album)
             if Task.isCancelled { return }
 
             await MainActor.run {
@@ -871,7 +907,8 @@ class PlayerViewModel: ObservableObject {
                     self.lyricLines = result.lines
                     self.lyricDuration = result.duration
                     self.hasSyncedLyrics = true
-                    self.lyricOffset = self.lyricOffsetsByStation[self.currentStationId ?? ""] ?? 0
+                    self.lyricOffset = self.playbackDependencies.lyricOffsets?.read(self.currentStationId ?? "")
+                        ?? self.lyricOffsetsByStation[self.currentStationId ?? ""] ?? 0
                     let offset = entry.playedAt.map { Date().timeIntervalSince($0) } ?? 0
                     self.lyricStartDate = entry.playedAt ?? Date().addingTimeInterval(-offset)
                     self.lyricStatus = .found
@@ -901,11 +938,10 @@ class PlayerViewModel: ObservableObject {
 
     /// Nudge the live sync correction and immediately re-evaluate the current line.
     func adjustLyricOffset(by delta: TimeInterval) {
-        if streamExperimentMode == .applyCandidate,
-           case .radio(let station) = currentSource,
-           StreamExperimentConfiguration.isEligible(station) {
+        if usesAlignedRadioPlayback {
+            guard isApplyingCandidateToCurrentItem, hasSyncedLyrics else { return }
             // Recording-only correction. Never read, modify, or save the
-            // existing per-station lyric offset in Apply mode.
+            // existing per-station lyric offset on the aligned path.
             experimentLyricCorrection += delta
             lyricOffset = experimentLyricCorrection
             refreshAppliedLyricLine()
@@ -919,15 +955,22 @@ class PlayerViewModel: ObservableObject {
         lyricLog.info("lyric offset = \(self.lyricOffset, format: .fixed(precision: 1))s  song=\(song, privacy: .public)")
 
         // Persist per-station (debounced so rapid taps collapse to one upsert).
-        guard let stationId = currentStationId, let userId else { return }
-        lyricOffsetsByStation[stationId] = lyricOffset
+        guard let stationId = currentStationId else { return }
+        let saveOffset: (Int) async throws -> Void
+        if let persistence = playbackDependencies.lyricOffsets {
+            saveOffset = { try await persistence.write(stationId, $0) }
+        } else {
+            guard let userId else { return }
+            lyricOffsetsByStation[stationId] = lyricOffset
+            saveOffset = { try await PocketCastsAPI.upsertLyricOffset(userId: userId, stationId: stationId, seconds: $0) }
+        }
         let seconds = Int(lyricOffset)
         lyricOffsetSaveTask?.cancel()
         lyricOffsetSaveTask = Task {
             try? await Task.sleep(nanoseconds: 800_000_000)
             if Task.isCancelled { return }
             do {
-                try await PocketCastsAPI.upsertLyricOffset(userId: userId, stationId: stationId, seconds: seconds)
+                try await saveOffset(seconds)
                 lyricLog.info("saved offset \(seconds)s station=\(stationId, privacy: .public)")
             } catch {
                 lyricLog.error("offset save failed: \(error.localizedDescription, privacy: .public)")
@@ -942,16 +985,18 @@ class PlayerViewModel: ObservableObject {
         let songEnd = lyricDuration ?? (last.timestamp + Self.lyricEndGrace)
         if offset < first.timestamp - Self.lyricIntroGrace || offset > songEnd + Self.lyricEndGrace {
             lyricStatus = .betweenTracks
+            currentLyric = ""
             return
         }
 
         let result = LyricsResult(lines: lyricLines, plain: nil)
-        if let line = LyricsService.shared.currentLine(in: result, at: offset) {
+        if let index = LyricsService.shared.currentLineIndex(in: result, at: offset) {
             lyricStatus = .found
-            currentLyric = line.text
-            if let idx = lyricLines.firstIndex(where: { $0.timestamp == line.timestamp }) {
-                currentLyricLineIndex = idx
-            }
+            currentLyric = lyricLines[index].text
+            currentLyricLineIndex = index
+        } else {
+            lyricStatus = .betweenTracks
+            currentLyric = ""
         }
     }
 
@@ -970,6 +1015,7 @@ class PlayerViewModel: ObservableObject {
         lyricFetchTask?.cancel()
         lyricFetchTask = nil
         lyricLines = []
+        alignedLyricsResult = nil
         lyricStartDate = nil
         currentLyricSongKey = nil
         hasSyncedLyrics = false
@@ -980,7 +1026,7 @@ class PlayerViewModel: ObservableObject {
     // MARK: - One-shot ACR identification
 
     func identifyNow() {
-        guard !isIdentifying, streamExperimentSession == nil,
+        guard !usesAlignedRadioPlayback, !isIdentifying, streamExperimentSession == nil,
               case .radio(let station) = currentSource else { return }
         guard let url = URL(string: station.streamURL) else { return }
         let httpsURL = upgradeToHTTPS(url)
@@ -989,7 +1035,7 @@ class PlayerViewModel: ObservableObject {
         stopFingerprinter()
         let fp = TrackFingerprinter(streamURL: httpsURL)
         fp.onResult = { [weak self] result in
-            guard let self, self.streamExperimentSession == nil else { return }
+            guard let self, !self.usesAlignedRadioPlayback, self.streamExperimentSession == nil else { return }
             self.isIdentifying = false
             acrLog.debug("identified '\(result.displayTitle, privacy: .public)' confidence=\(result.confidence)")
             self.showToast("\(result.displayTitle)")
@@ -1008,9 +1054,9 @@ class PlayerViewModel: ObservableObject {
 
     @MainActor
     private func insertACRResult(_ result: TrackFingerprintResult) async {
-        guard streamExperimentSession == nil else { return }
+        guard !usesAlignedRadioPlayback, streamExperimentSession == nil else { return }
         let artURL = await fetchITunesArtwork(title: result.title, artist: result.artist)
-        guard streamExperimentSession == nil else { return }
+        guard !usesAlignedRadioPlayback, streamExperimentSession == nil else { return }
         let entry = TracklistEntry(
             title: result.title,
             artist: result.artist,
@@ -1048,7 +1094,7 @@ class PlayerViewModel: ObservableObject {
     // MARK: - Track Identification Mode (legacy poll mode, kept for future use)
 
     func toggleTrackIdMode() {
-        guard streamExperimentSession == nil else { return }
+        guard !usesAlignedRadioPlayback, streamExperimentSession == nil else { return }
         switch trackIdMode {
         case .tracklist:
             trackIdMode = .acr
@@ -1056,7 +1102,7 @@ class PlayerViewModel: ObservableObject {
                 guard let url = URL(string: station.streamURL) else { return }
                 let fp = TrackFingerprinter(streamURL: upgradeToHTTPS(url))
                 fp.onResult = { [weak self] result in
-                    guard let self, self.trackIdMode == .acr,
+                    guard let self, !self.usesAlignedRadioPlayback, self.trackIdMode == .acr,
                           self.streamExperimentSession == nil else { return }
                     self.nowPlayingTitle = result.displayTitle
                     NotificationCenter.default.post(name: .pocketRadioNowPlayingChanged, object: nil)
@@ -1217,8 +1263,11 @@ class PlayerViewModel: ObservableObject {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handlePlaybackEnded() }
+        ) { [weak self, weak item] _ in
+            Task { @MainActor in
+                guard let self, let item, self.audioPlayer.currentItem === item else { return }
+                self.handlePlaybackEnded()
+            }
         }
     }
 
@@ -1273,18 +1322,18 @@ class PlayerViewModel: ObservableObject {
 
     private func setupTimeObserver() {
         let interval = CMTime(seconds: 1, preferredTimescale: 1)
-        timeObserverToken = audioPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
-            guard let self = self else { return }
-            self.updateScrubTimes()
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.streamExperimentSession?.sample(currentItem: self.audioPlayer.currentItem,
-                                                     rate: self.audioPlayer.rate,
-                                                     status: self.audioPlayer.timeControlStatus)
+        let observedItem = audioPlayer.currentItem
+        timeObserverToken = audioPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self, weak observedItem] _ in
+            Task { @MainActor [weak self, weak observedItem] in
+                guard let self, let observedItem, self.audioPlayer.currentItem === observedItem else { return }
+                self.updateScrubTimes()
+                if let session = self.streamExperimentSession {
+                    self.playbackDependencies.sample(session, self.audioPlayer)
+                }
+                self.objectWillChange.send()
+                self.maybeSavePosition()
+                self.updateNowPlayingInfo(force: false)
             }
-            self.objectWillChange.send()
-            self.maybeSavePosition()
-            self.updateNowPlayingInfo(force: false)
         }
     }
 
@@ -1492,7 +1541,7 @@ class PlayerViewModel: ObservableObject {
         case .stream(let idx):
             if idx < favoriteStations.count {
                 let station = favoriteStations[idx]
-                let entries = await PocketCastsAPI.fetchTracklist(for: station)
+                let entries = await self.playbackDependencies.fetchTracklist(station)
                 self.tracklist = entries
             }
         }
@@ -1679,7 +1728,7 @@ class PlayerViewModel: ObservableObject {
            let item = audioPlayer.currentItem,
            currentSource != nil,
            item.error == nil {
-            audioPlayer.play()
+            playbackDependencies.play(audioPlayer)
             isPlaying = true
             notifyNowPlayingChanged()
             return
@@ -1836,44 +1885,39 @@ class PlayerViewModel: ObservableObject {
         print("🎵 PocketRadio: Starting playback — \(url)")
         streamExperimentSession?.stop()
         streamExperimentSession = nil
+        alignmentSource = nil
         streamExperimentSnapshot = nil
-        if streamExperimentMode == .applyCandidate,
-           case .radio(let station) = currentSource,
-           StreamExperimentConfiguration.isEligible(station),
-           url == StreamExperimentConfiguration.measuredEndpoint {
+        if usesAlignedRadioPlayback, url == StreamExperimentConfiguration.measuredEndpoint {
             lyricOffsetSaveTask?.cancel()
             lyricOffsetSaveTask = nil
             resetAppliedPublication()
         }
-        let playerItem = AVPlayerItem(url: url)
+        let playerItem = playbackDependencies.makeItem(url)
         audioPlayer.replaceCurrentItem(with: playerItem)
-        if streamExperimentMode != .off,
-           case .radio(let station) = currentSource,
+        if case .radio(let station) = currentSource,
            StreamExperimentConfiguration.isEligible(station),
            url == StreamExperimentConfiguration.measuredEndpoint {
             stopFingerprinter()
             trackIdMode = .tracklist
-            let feedClient = RadioFeedClient()
-            let session = RadioPlaybackSession(item: playerItem, endpoint: url,
-                                               mode: streamExperimentMode,
-                                               fetchFeed: { await feedClient.fetch() })
+            let session = playbackDependencies.makeSession(playerItem, url, streamExperimentMode,
+                                                            playbackDependencies.fetchFeed)
             session.onSnapshot = { [weak self, weak session] snapshot in
                 guard let self, let session, self.streamExperimentSession === session,
                       self.audioPlayer.currentItem === playerItem else { return }
                 self.streamExperimentSnapshot = snapshot
-                if self.streamExperimentMode == .applyCandidate {
+                if self.usesAlignedRadioPlayback {
                     self.publishAppliedSnapshot(snapshot)
                 }
             }
             session.legacyTitle = { [weak self] in
                 guard let self else { return "" }
-                if self.streamExperimentMode == .applyCandidate {
+                if self.usesAlignedRadioPlayback {
                     guard self.tracklistStationId == station.id else { return "" }
                     return self.tracklist.first.map { "\($0.title) — \($0.artist)" } ?? station.name
                 }
                 return self.nowPlayingTitle
             }
-            if streamExperimentMode == .applyCandidate {
+            if usesAlignedRadioPlayback {
                 session.publishedTitle = { [weak self] in self?.nowPlayingTitle ?? "" }
             }
             session.onRecorderStatus = { [weak self, weak session] status in
@@ -1881,11 +1925,14 @@ class PlayerViewModel: ObservableObject {
                 self.streamExperimentExportStatus = status
             }
             streamExperimentSession = session
+            alignmentSource = station
             streamExperimentSnapshot = session.snapshot
-            if let route = pendingExperimentRoute {
+            #if DEBUG
+            if streamExperimentMode != .off, let route = pendingExperimentRoute {
                 do { try session.beginRecording(routeCategory: route) }
                 catch { streamExperimentExportStatus = "Capture failed to start" }
             }
+            #endif
         }
         pendingExperimentRoute = nil
         lastPositionSaveTime = nil
@@ -1908,24 +1955,28 @@ class PlayerViewModel: ObservableObject {
             let seekTime = CMTime(seconds: Double(ep.playedUpTo), preferredTimescale: 600)
             print("🎵 PocketRadio: Seeking to \(ep.playedUpTo)s, then playing")
             audioPlayer.seek(to: seekTime) { [weak self] _ in
-                guard let self = self,
-                      case .podcast(let currentEp) = self.currentSource,
-                      currentEp.uuid == ep.uuid else { return }
-                self.audioPlayer.play()
+                Task { @MainActor [weak self] in
+                    guard let self, self.isPlaying,
+                          case .podcast(let currentEp) = self.currentSource,
+                          currentEp.uuid == ep.uuid,
+                          self.audioPlayer.currentItem === playerItem else { return }
+                    self.playbackDependencies.play(self.audioPlayer)
+                }
             }
         } else {
-            audioPlayer.play()
+            playbackDependencies.play(audioPlayer)
         }
 
         notifyNowPlayingChanged()
     }
 
     private func stopPlayback() {
-        if streamExperimentSession?.mode == .applyCandidate {
+        if usesAlignedRadioPlayback || appliedSelectionKey != nil {
             resetAppliedPublication()
         }
         streamExperimentSession?.stop()
         streamExperimentSession = nil
+        alignmentSource = nil
         streamExperimentSnapshot = nil
         stopFingerprinter()
         trackIdMode = .tracklist
@@ -1983,7 +2034,7 @@ class PlayerViewModel: ObservableObject {
         lastNowPlayingInfoUpdate = Date()
 
         guard let source = currentSource else {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            playbackDependencies.publishNowPlaying(nil)
             return
         }
 
@@ -2008,7 +2059,7 @@ class PlayerViewModel: ObservableObject {
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
 
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        playbackDependencies.publishNowPlaying(info)
     }
 
     // MARK: - Helpers
