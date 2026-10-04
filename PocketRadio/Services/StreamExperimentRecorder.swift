@@ -50,6 +50,8 @@ final class StreamExperimentRecorder {
     init(sessionID: UUID, endpoint: URL, routeCategory: String,
          sessionElapsedAtStart: Double, mode: StreamExperimentMode = .observeOnly,
          directory: URL? = nil) throws {
+        #if DEBUG
+        guard mode != .off else { throw TraceError.invalid("Off cannot capture") }
         guard ["speaker", "headphones", "bluetooth", "other", "unrecorded"].contains(routeCategory),
               sessionElapsedAtStart.isFinite, sessionElapsedAtStart >= 0 else {
             throw TraceError.invalid("invalid route category or capture time")
@@ -77,14 +79,19 @@ final class StreamExperimentRecorder {
             try? writer.close()
             throw error
         }
+        #else
+        throw TraceError.invalid("capture is Debug-only")
+        #endif
     }
 
     var isRecording: Bool { !finished && !failed }
 
     func marker(_ name: String) {
+        #if DEBUG
         guard ["heard_song_change", "lyric_landmark", "wrong_title_or_line",
                "speech_or_commercial"].contains(name) else { return }
         tryAppend(.marker(name))
+        #endif
     }
 
     func feed(_ result: RadioFeedResult, requestedSessionElapsed: Double) -> Int? {

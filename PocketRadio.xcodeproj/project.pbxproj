@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DD1200000000000000000001 /* command_load_station.json in Resources */ = {isa = PBXBuildFile; fileRef = DD120000000000000000000B /* command_load_station.json */; };
+		DD1200000000000000000002 /* command_pause.json in Resources */ = {isa = PBXBuildFile; fileRef = DD120000000000000000000C /* command_pause.json */; };
+		DD1200000000000000000003 /* command_play.json in Resources */ = {isa = PBXBuildFile; fileRef = DD120000000000000000000D /* command_play.json */; };
+		DD1200000000000000000004 /* command_stop.json in Resources */ = {isa = PBXBuildFile; fileRef = DD120000000000000000000E /* command_stop.json */; };
+		DD1200000000000000000005 /* presence_ios.json in Resources */ = {isa = PBXBuildFile; fileRef = DD120000000000000000000F /* presence_ios.json */; };
+		DD1200000000000000000006 /* presence_macos.json in Resources */ = {isa = PBXBuildFile; fileRef = DD1200000000000000000010 /* presence_macos.json */; };
 		DD1100000000000000000001 /* StreamExperimentConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000011 /* StreamExperimentConfiguration.swift */; };
 		DD1100000000000000000002 /* RadioFeedClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000012 /* RadioFeedClient.swift */; };
 		DD1100000000000000000003 /* RadioPlaybackSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000013 /* RadioPlaybackSession.swift */; };
@@ -57,6 +63,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		DD120000000000000000000B /* command_load_station.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = command_load_station.json; path = "../contracts/remote/command_load_station.json"; sourceTree = SOURCE_ROOT; };
+		DD120000000000000000000C /* command_pause.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = command_pause.json; path = "../contracts/remote/command_pause.json"; sourceTree = SOURCE_ROOT; };
+		DD120000000000000000000D /* command_play.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = command_play.json; path = "../contracts/remote/command_play.json"; sourceTree = SOURCE_ROOT; };
+		DD120000000000000000000E /* command_stop.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = command_stop.json; path = "../contracts/remote/command_stop.json"; sourceTree = SOURCE_ROOT; };
+		DD120000000000000000000F /* presence_ios.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = presence_ios.json; path = "../contracts/remote/presence_ios.json"; sourceTree = SOURCE_ROOT; };
+		DD1200000000000000000010 /* presence_macos.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = presence_macos.json; path = "../contracts/remote/presence_macos.json"; sourceTree = SOURCE_ROOT; };
 		DD1100000000000000000011 /* StreamExperimentConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamExperimentConfiguration.swift; sourceTree = "<group>"; };
 		DD1100000000000000000012 /* RadioFeedClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioFeedClient.swift; sourceTree = "<group>"; };
 		DD1100000000000000000013 /* RadioPlaybackSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioPlaybackSession.swift; sourceTree = "<group>"; };
@@ -171,6 +183,12 @@
 				DD1100000000000000000015 /* StreamSessionIntegrationTests.swift */,
 				8C1FEB0328ECA8E2006BF71C /* PocketRadioTests.swift */,
 				BB000002000000000000001B /* RemoteCommandFixtureTests.swift */,
+				DD120000000000000000000B /* command_load_station.json */,
+				DD120000000000000000000C /* command_pause.json */,
+				DD120000000000000000000D /* command_play.json */,
+				DD120000000000000000000E /* command_stop.json */,
+				DD120000000000000000000F /* presence_ios.json */,
+				DD1200000000000000000010 /* presence_macos.json */,
 			);
 			path = "PocketRadioTests";
 			sourceTree = "<group>";
@@ -351,6 +369,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD1200000000000000000001 /* command_load_station.json in Resources */,
+				DD1200000000000000000002 /* command_pause.json in Resources */,
+				DD1200000000000000000003 /* command_play.json in Resources */,
+				DD1200000000000000000004 /* command_stop.json in Resources */,
+				DD1200000000000000000005 /* presence_ios.json in Resources */,
+				DD1200000000000000000006 /* presence_macos.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

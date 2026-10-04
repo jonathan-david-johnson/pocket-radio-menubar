@@ -42,17 +42,10 @@ final class RemoteCommandFixtureTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func fixtureDir() throws -> URL {
-        let thisFile = URL(fileURLWithPath: #filePath)
-        return thisFile
-            .deletingLastPathComponent() // PocketRadioTests
-            .deletingLastPathComponent() // pocket-radio-menubar
-            .deletingLastPathComponent() // shell root
-            .appendingPathComponent("contracts/remote")
-    }
-
     private func fixtureData(_ name: String) throws -> Data {
-        let url = try fixtureDir().appendingPathComponent("\(name).json")
+        // XCTest hosts must not open protected Documents paths at runtime.
+        // Xcode copies the unchanged shared contracts into this test bundle.
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "json"))
         return try Data(contentsOf: url)
     }
 

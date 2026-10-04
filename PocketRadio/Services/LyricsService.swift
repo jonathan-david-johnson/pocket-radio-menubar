@@ -17,18 +17,31 @@ struct LyricsResult {
     /// Track length in seconds from lrclib, used to detect "between tracks".
     let duration: TimeInterval?
     let provenance: LyricProvenance
+    /// Catalog identity, not proof of the recording heard on air.
+    let resourceID: String?
 
     init(lines: [LyricLine], plain: String?, duration: TimeInterval? = nil,
-         provenance: LyricProvenance = .unverified) {
+         provenance: LyricProvenance = .unverified, resourceID: String? = nil) {
         self.lines = lines
         self.plain = plain
         self.duration = duration
         self.provenance = provenance
+        self.resourceID = resourceID
     }
 
     var hasSynced: Bool { !lines.isEmpty }
-    /// Apply mode must never time-highlight a search/fuzzy or unverified result.
-    var isExactSynced: Bool { hasSynced && provenance == .exact }
+    /// Exact text lookup still does not verify recording identity. Invalid/missing
+    /// timing and fuzzy resources cannot drive the aligned playback clock.
+    var isExactSynced: Bool {
+        guard hasSynced, provenance == .exact,
+              duration.map({ $0.isFinite && $0 > 0 }) ?? true else { return false }
+        var previous: TimeInterval = -1
+        for line in lines {
+            guard line.timestamp.isFinite, line.timestamp >= 0, line.timestamp >= previous else { return false }
+            previous = line.timestamp
+        }
+        return true
+    }
 }
 
 final class LyricsService {
@@ -111,7 +124,8 @@ final class LyricsService {
         let duration = json["duration"] as? Double
         let lines = synced.map { LyricsService.shared.parseLRC($0) } ?? []
         return LyricsResult(lines: lines, plain: plain, duration: duration,
-                            provenance: provenance)
+                            provenance: provenance,
+                            resourceID: (json["id"] as? Int).map { "lrclib:\($0)" })
     }
 
     /// Strip trailing qualifier groups like "(Edit)", "(CLEAN)", "(Radio Edit)",
@@ -147,14 +161,19 @@ final class LyricsService {
     }
 
     func currentLine(in result: LyricsResult, at offset: TimeInterval) -> LyricLine? {
+        currentLineIndex(in: result, at: offset).map { result.lines[$0] }
+    }
+
+    /// Select once by index so text and highlighting agree even when timestamps repeat.
+    func currentLineIndex(in result: LyricsResult, at offset: TimeInterval) -> Int? {
         guard !result.lines.isEmpty else { return nil }
-        // Find last line whose timestamp <= offset
+        // Find last line whose timestamp <= offset.
         var lo = 0, hi = result.lines.count - 1
-        var match: LyricLine? = nil
+        var match: Int? = nil
         while lo <= hi {
             let mid = (lo + hi) / 2
             if result.lines[mid].timestamp <= offset {
-                match = result.lines[mid]
+                match = mid
                 lo = mid + 1
             } else {
                 hi = mid - 1

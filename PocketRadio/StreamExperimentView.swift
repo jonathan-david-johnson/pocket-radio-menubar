@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Debug-only session modes. Apply is explicit, reversible, and never persisted.
+/// Debug-only comparison/capture controls. Off retains ordinary alignment.
 struct StreamExperimentView: View {
     @ObservedObject var vm: PlayerViewModel
     @State private var routeCategory = "unrecorded"
@@ -43,7 +43,7 @@ struct StreamExperimentView: View {
                 }
             }
             .pickerStyle(.segmented)
-            Text("Changing modes reconnects a playing KCRW item. Other stations and podcasts keep their normal URLs. No settings are saved.")
+            Text("Off keeps ordinary KCRW alignment without capture. Observe compares legacy publication on the measured endpoint. Apply aligns; capture starts only with the button. Changing modes reconnects. Nothing is saved to station settings.")
                 .font(.caption)
             Divider()
             line("Playback", vm.isPlaying ? "playing" : "stopped")
@@ -53,13 +53,13 @@ struct StreamExperimentView: View {
             line("Eligibility", vm.streamExperimentEligibility)
             Divider()
             line("Endpoint", vm.streamExperimentSnapshot?.endpoint.absoluteString
-                 ?? "\(StreamExperimentConfiguration.measuredEndpoint.absoluteString) (armed only)")
-            line(vm.streamExperimentMode == .applyCandidate ? "Applied title" : "Legacy published",
+                 ?? "\(StreamExperimentConfiguration.measuredEndpoint.absoluteString) (eligible playback)")
+            line(vm.usesAlignedRadioPlayback ? "Aligned title" : "Legacy published",
                  vm.nowPlayingTitle.isEmpty ? "—" : vm.nowPlayingTitle)
             line("Feed top", vm.streamExperimentSnapshot?.feedTop ?? "unavailable")
             line("Candidate", vm.streamExperimentSnapshot?.candidate ?? "unavailable")
             line("Reason", vm.streamExperimentSnapshot?.reason ?? "No active experimental item")
-            if vm.streamExperimentMode == .applyCandidate {
+            if vm.usesAlignedRadioPlayback {
                 line("Lyric resource", vm.streamExperimentLyricReason)
             }
             line("Feed", vm.streamExperimentSnapshot?.feedStatus ?? "not requested")
@@ -104,9 +104,7 @@ struct StreamExperimentView: View {
                     .lineLimit(3)
                     .textSelection(.enabled)
             }
-            Text(vm.streamExperimentMode == .applyCandidate
-                 ? "Apply publishes the estimated candidate to title, history, Now Playing and eligible lyrics. Missing alignment hides timed lyrics; +160s is not verified lyric accuracy. Off restores normal playback. No saved URLs or lyric offsets change."
-                 : "Observe does not publish the candidate. +160s is an estimate for this endpoint; it is not lyric or speaker alignment. Capture writes local owner-only trace and decision files, without audio or lyrics.")
+            Text("Ordinary Off and explicit Apply share estimated title, history, Now Playing and exact lyric resources. Observe never publishes the candidate. +160s is frozen, not verified lyric or speaker accuracy. Only explicit Debug capture writes owner-only trace/decision files, without audio or lyrics. Saved URLs and legacy offsets stay unchanged.")
                 .font(.caption)
         }
         .font(.system(size: 11))

@@ -181,6 +181,17 @@ struct ContentView: View {
             }
             .padding(.vertical, 10)
 
+            if let reason = vm.alignmentUnavailableReason {
+                Text(reason)
+                    .font(.system(size: 11))
+                    .foregroundColor(PocketCastsTheme.primaryText02)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+                    .help(reason)
+            }
+
             // ── Scrub Bar (seekable content only) ──
             if vm.showSkipControls && vm.currentSource != nil {
                 scrubBar
@@ -593,7 +604,7 @@ struct ContentView: View {
 
             Spacer()
 
-            if vm.streamExperimentMode == .applyCandidate && vm.isCurrentTracklistEntry(entry) {
+            if vm.usesAlignedRadioPlayback && vm.isCurrentTracklistEntry(entry) {
                 Image(systemName: "waveform")
                     .foregroundColor(PocketCastsTheme.accent)
                     .accessibilityLabel("Selected occurrence")
@@ -1298,6 +1309,17 @@ struct LyricsDetailView: View {
     @State private var lyricsResult: LyricsResult? = nil
     @State private var isLoading = true
 
+    private var liveSelection: PlayerViewModel.LiveLyricSelection? { vm.liveLyricSelection(for: entry) }
+    private var displayedResult: LyricsResult? {
+        if let liveSelection { return liveSelection.result }
+        return lyricsResult
+    }
+    private var displayedLoading: Bool { liveSelection?.isLoading ?? isLoading }
+    private var highlightedIndex: Int? {
+        if vm.usesAlignedRadioPlayback { return liveSelection?.highlightedLineIndex }
+        return isCurrentSong && vm.hasSyncedLyrics && vm.lyricStatus == .found ? currentLyricIndex : nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header: album art + title + artist
@@ -1339,11 +1361,11 @@ struct LyricsDetailView: View {
                 .frame(height: 1)
 
             // Lyrics content
-            if isLoading {
+            if displayedLoading {
                 HStack { Spacer(); ProgressView().scaleEffect(0.7); Spacer() }
                     .padding(.top, 20)
                 Spacer()
-            } else if let result = lyricsResult {
+            } else if let result = displayedResult {
                 if result.hasSynced {
                     syncedLyricsView(result)
                 } else if let plain = result.plain, !plain.isEmpty {
@@ -1356,13 +1378,17 @@ struct LyricsDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task(id: entry.title + entry.artist) {
+        .task(id: "\(entry.id)|\(liveSelection != nil)") {
+            // The current aligned occurrence never starts a second lyric lookup.
+            guard liveSelection == nil else { return }
             isLoading = true
-            lyricsResult = await LyricsService.shared.fetch(
+            let result = await LyricsService.shared.fetch(
                 artist: entry.artist,
                 title: entry.title,
                 album: entry.album
             )
+            guard !Task.isCancelled else { return }
+            lyricsResult = result
             isLoading = false
         }
     }
@@ -1397,8 +1423,7 @@ struct LyricsDetailView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(result.lines.enumerated()), id: \.offset) { idx, line in
-                        let isCurrent = isCurrentSong && vm.hasSyncedLyrics
-                            && vm.lyricStatus == .found && idx == currentLyricIndex
+                        let isCurrent = idx == highlightedIndex
                         Text(line.text.isEmpty ? " " : line.text)
                             .font(.system(size: 13, weight: isCurrent ? .bold : .regular))
                             .foregroundColor(isCurrent
@@ -1413,14 +1438,12 @@ struct LyricsDetailView: View {
                 .padding(.vertical, 8)
             }
             .onAppear {
-                if isCurrentSong && vm.hasSyncedLyrics && vm.lyricStatus == .found {
-                    proxy.scrollTo(currentLyricIndex, anchor: .center)
-                }
+                if let index = highlightedIndex { proxy.scrollTo(index, anchor: .center) }
             }
-            .onChange(of: currentLyricIndex) { newIdx in
-                if isCurrentSong && vm.hasSyncedLyrics && vm.lyricStatus == .found {
+            .onChange(of: highlightedIndex) { newIndex in
+                if let index = newIndex {
                     withAnimation(.easeInOut(duration: 0.4)) {
-                        proxy.scrollTo(newIdx, anchor: .center)
+                        proxy.scrollTo(index, anchor: .center)
                     }
                 }
             }
