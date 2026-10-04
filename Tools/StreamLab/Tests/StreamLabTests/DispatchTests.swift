@@ -31,9 +31,9 @@ final class DispatchTests: XCTestCase {
         }
     }
 
-    func testUsageNamesBothCommandsAndTheRequiredCaptureOptions() {
+    func testUsageNamesCommandsAndRequiredOptions() {
         let usage = LabDispatch.usage
-        for expected in ["capture", "replay", "--station", "--stream-url", "--output"] {
+        for expected in ["capture", "replay", "select", "compare", "--annotations", "--station", "--stream-url", "--output"] {
             XCTAssertTrue(usage.contains(expected), "Usage should mention \(expected)")
         }
     }
@@ -95,6 +95,58 @@ final class DispatchTests: XCTestCase {
             XCTAssertThrowsError(try parse(arguments), "Expected \(arguments) to be rejected") {
                 XCTAssertTrue($0 is UsageError, "Expected UsageError for \(arguments), got \($0)")
             }
+        }
+    }
+
+    func testSelectParsesTraceAnnotationsAndOffset() throws {
+        guard case .select(let options) = try parse(["select", "/tmp/trace.jsonl",
+                                                     "--annotations", "/tmp/annotations.json",
+                                                     "--offset", "159.75"]) else {
+            return XCTFail("Expected select command")
+        }
+        XCTAssertEqual(options.traceURL.path, "/tmp/trace.jsonl")
+        XCTAssertEqual(options.annotationsURL.path, "/tmp/annotations.json")
+        XCTAssertEqual(options.offsetSeconds, 159.75)
+    }
+
+    func testSelectDefaultsOffsetAndRejectsInvalidArguments() throws {
+        guard case .select(let options) = try parse(["select", "/tmp/trace.jsonl",
+                                                     "--annotations", "/tmp/annotations.json"]) else {
+            return XCTFail("Expected select command")
+        }
+        XCTAssertEqual(options.offsetSeconds, 160)
+
+        let invalid: [[String]] = [
+            ["select"],
+            ["select", "/tmp/trace.jsonl"],
+            ["select", "/tmp/trace.jsonl", "--annotations"],
+            ["select", "/tmp/trace.jsonl", "--annotations", "/tmp/a.json", "--offset", "nan"],
+            ["select", "/tmp/trace.jsonl", "--annotations", "/tmp/a.json", "--offset", "9999"],
+            ["select", "/tmp/trace.jsonl", "--annotations", "/tmp/a.json", "--unknown", "x"],
+        ]
+        for arguments in invalid {
+            XCTAssertThrowsError(try parse(arguments), "Expected \(arguments) to be rejected") {
+                XCTAssertTrue($0 is UsageError, "Expected UsageError for \(arguments), got \($0)")
+            }
+        }
+    }
+
+    func testCompareParsesTwoOrMorePairsAndFinalOffset() throws {
+        guard case .compare(let options) = try parse([
+            "compare", "/tmp/s1.jsonl", "/tmp/s1.json", "/tmp/s2.jsonl", "/tmp/s2.json",
+            "--offset", "160.5",
+        ]) else { return XCTFail("Expected compare command") }
+        XCTAssertEqual(options.pairs.count, 2)
+        XCTAssertEqual(options.pairs[1].traceURL.path, "/tmp/s2.jsonl")
+        XCTAssertEqual(options.offsetSeconds, 160.5)
+
+        for arguments in [
+            ["compare"],
+            ["compare", "/tmp/s1", "/tmp/a1"],
+            ["compare", "/tmp/s1", "/tmp/a1", "/tmp/s2"],
+            ["compare", "/tmp/s1", "/tmp/a1", "/tmp/s2", "/tmp/a2", "--offset"],
+        ] {
+            XCTAssertThrowsError(try parse(arguments)) { XCTAssertTrue($0 is UsageError) }
         }
     }
 }

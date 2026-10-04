@@ -7,6 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DD1100000000000000000001 /* StreamExperimentConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000011 /* StreamExperimentConfiguration.swift */; };
+		DD1100000000000000000002 /* RadioFeedClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000012 /* RadioFeedClient.swift */; };
+		DD1100000000000000000003 /* RadioPlaybackSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000013 /* RadioPlaybackSession.swift */; };
+		DD110000000000000000000A /* StreamExperimentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000016 /* StreamExperimentRecorder.swift */; };
+		DD1100000000000000000004 /* StreamExperimentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000014 /* StreamExperimentView.swift */; };
+		DD1100000000000000000005 /* StreamSessionIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1100000000000000000015 /* StreamSessionIntegrationTests.swift */; };
+		DD1100000000000000000006 /* StreamSession in Frameworks */ = {isa = PBXBuildFile; productRef = DD1100000000000000000031 /* StreamSession */; };
+		DD1100000000000000000007 /* StreamDiagnostics in Frameworks */ = {isa = PBXBuildFile; productRef = DD1100000000000000000032 /* StreamDiagnostics */; };
+		DD1100000000000000000008 /* StreamSession in Frameworks */ = {isa = PBXBuildFile; productRef = DD1100000000000000000033 /* StreamSession */; };
+		DD1100000000000000000009 /* StreamDiagnostics in Frameworks */ = {isa = PBXBuildFile; productRef = DD1100000000000000000034 /* StreamDiagnostics */; };
 		2DB46C822F294A1B00DEA46A /* Station.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB46C812F294A1B00DEA46A /* Station.swift */; };
 		8C1FEAF628ECA8E1006BF71C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF528ECA8E1006BF71C /* Assets.xcassets */; };
 		8C1FEAF928ECA8E1006BF71C /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8C1FEAF828ECA8E1006BF71C /* Preview Assets.xcassets */; };
@@ -47,6 +57,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		DD1100000000000000000011 /* StreamExperimentConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamExperimentConfiguration.swift; sourceTree = "<group>"; };
+		DD1100000000000000000012 /* RadioFeedClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioFeedClient.swift; sourceTree = "<group>"; };
+		DD1100000000000000000013 /* RadioPlaybackSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioPlaybackSession.swift; sourceTree = "<group>"; };
+		DD1100000000000000000016 /* StreamExperimentRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamExperimentRecorder.swift; sourceTree = "<group>"; };
+		DD1100000000000000000014 /* StreamExperimentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamExperimentView.swift; sourceTree = "<group>"; };
+		DD1100000000000000000015 /* StreamSessionIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamSessionIntegrationTests.swift; sourceTree = "<group>"; };
 		2DB46C812F294A1B00DEA46A /* Station.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Station.swift; sourceTree = "<group>"; };
 		8C1FEAEE28ECA8DF006BF71C /* PocketRadio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PocketRadio.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C1FEAF128ECA8DF006BF71C /* PocketRadioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRadioApp.swift; sourceTree = "<group>"; };
@@ -78,6 +94,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD1100000000000000000006 /* StreamSession in Frameworks */,
+				DD1100000000000000000007 /* StreamDiagnostics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,6 +103,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD1100000000000000000008 /* StreamSession in Frameworks */,
+				DD1100000000000000000009 /* StreamDiagnostics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -121,6 +141,7 @@
 		8C1FEAF028ECA8DF006BF71C /* PocketRadio */ = {
 			isa = PBXGroup;
 			children = (
+				DD1100000000000000000014 /* StreamExperimentView.swift */,
 				8C1FEB2A28ECB483006BF71C /* Utils */,
 				8C1FEB2728ECB449006BF71C /* View Models */,
 				8C1FEB2428ECB3A9006BF71C /* Services */,
@@ -147,6 +168,7 @@
 		8C1FEB0228ECA8E2006BF71C /* PocketRadioTests */ = {
 			isa = PBXGroup;
 			children = (
+				DD1100000000000000000015 /* StreamSessionIntegrationTests.swift */,
 				8C1FEB0328ECA8E2006BF71C /* PocketRadioTests.swift */,
 				BB000002000000000000001B /* RemoteCommandFixtureTests.swift */,
 			);
@@ -175,6 +197,10 @@
 		8C1FEB2428ECB3A9006BF71C /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				DD1100000000000000000011 /* StreamExperimentConfiguration.swift */,
+				DD1100000000000000000012 /* RadioFeedClient.swift */,
+				DD1100000000000000000013 /* RadioPlaybackSession.swift */,
+				DD1100000000000000000016 /* StreamExperimentRecorder.swift */,
 				8C1FEB2528ECB3BA006BF71C /* APIService.swift */,
 				AA000001000000000000001B /* TrackFingerprinter.swift */,
 				AA000001000000000000002B /* LyricsService.swift */,
@@ -217,6 +243,8 @@
 			);
 			name = "PocketRadio";
 			packageProductDependencies = (
+				DD1100000000000000000031 /* StreamSession */,
+				DD1100000000000000000032 /* StreamDiagnostics */,
 			);
 			productName = "PocketRadio";
 			productReference = 8C1FEAEE28ECA8DF006BF71C /* PocketRadio.app */;
@@ -236,6 +264,10 @@
 				8C1FEB0128ECA8E2006BF71C /* PBXTargetDependency */,
 			);
 			name = "PocketRadioTests";
+			packageProductDependencies = (
+				DD1100000000000000000033 /* StreamSession */,
+				DD1100000000000000000034 /* StreamDiagnostics */,
+			);
 			productName = "PocketRadioTests";
 			productReference = 8C1FEAFF28ECA8E2006BF71C /* PocketRadioTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -291,6 +323,8 @@
 			);
 			mainGroup = 8C1FEAE528ECA8DF006BF71C;
 			packageReferences = (
+				DD1100000000000000000021 /* XCLocalSwiftPackageReference "Packages/StreamSession" */,
+				DD1100000000000000000022 /* XCLocalSwiftPackageReference "Tools/StreamLab" */,
 			);
 			productRefGroup = 8C1FEAEF28ECA8DF006BF71C /* Products */;
 			projectDirPath = "";
@@ -334,6 +368,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD1100000000000000000001 /* StreamExperimentConfiguration.swift in Sources */,
+				DD1100000000000000000002 /* RadioFeedClient.swift in Sources */,
+				DD1100000000000000000003 /* RadioPlaybackSession.swift in Sources */,
+				DD110000000000000000000A /* StreamExperimentRecorder.swift in Sources */,
+				DD1100000000000000000004 /* StreamExperimentView.swift in Sources */,
 				8C1FEB2028ECB209006BF71C /* PocketRadioApp.swift in Sources */,
 				8C1FEB2628ECB3BA006BF71C /* APIService.swift in Sources */,
 				AA000001000000000000001A /* TrackFingerprinter.swift in Sources */,
@@ -355,6 +394,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD1100000000000000000005 /* StreamSessionIntegrationTests.swift in Sources */,
 				8C1FEB0428ECA8E2006BF71C /* PocketRadioTests.swift in Sources */,
 				BB000002000000000000001A /* RemoteCommandFixtureTests.swift in Sources */,
 			);
@@ -688,6 +728,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		DD1100000000000000000021 /* XCLocalSwiftPackageReference "Packages/StreamSession" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/StreamSession;
+		};
+		DD1100000000000000000022 /* XCLocalSwiftPackageReference "Tools/StreamLab" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Tools/StreamLab;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DD1100000000000000000031 /* StreamSession */ = {isa = XCSwiftPackageProductDependency; package = DD1100000000000000000021 /* XCLocalSwiftPackageReference "Packages/StreamSession" */; productName = StreamSession; };
+		DD1100000000000000000032 /* StreamDiagnostics */ = {isa = XCSwiftPackageProductDependency; package = DD1100000000000000000022 /* XCLocalSwiftPackageReference "Tools/StreamLab" */; productName = StreamDiagnostics; };
+		DD1100000000000000000033 /* StreamSession */ = {isa = XCSwiftPackageProductDependency; package = DD1100000000000000000021 /* XCLocalSwiftPackageReference "Packages/StreamSession" */; productName = StreamSession; };
+		DD1100000000000000000034 /* StreamDiagnostics */ = {isa = XCSwiftPackageProductDependency; package = DD1100000000000000000022 /* XCLocalSwiftPackageReference "Tools/StreamLab" */; productName = StreamDiagnostics; };
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8C1FEAE628ECA8DF006BF71C /* Project object */;
 }

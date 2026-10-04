@@ -6,7 +6,7 @@ The trace/reducer library is Foundation-only. Live capture uses AVFoundation and
 
 ## Current status
 
-Phases 1–3 are complete; the 52-test package suite passes. `capture` and `replay` have been exercised against a local fixture, two attended KCRW AAC/HLS sessions, and one attended KEXP AAC/ICY session; all replay offline. KEXP supplied pre-roll and title metadata, a feed airbreak, and real pause/resume observations, but only three named song markers—not a station timing distribution. A tested selection policy remains outstanding. See the [M10 execution handoff](../../../docs/menubar/milestones/milestone_10_handoff.md), [KCRW results](../../../docs/menubar/experiments/2026-09-26_kcrw_hls_attended.md), and [KEXP results](../../../docs/menubar/experiments/2026-09-27_kexp_aac_attended.md). No production player behavior has changed.
+M10 capture/replay is complete and merged. The 63-test Stream Lab suite and separate 23-test StreamSession core suite pass. `capture` and observation-only `replay` have been exercised against a local fixture, two attended KCRW AAC/HLS sessions, and one attended KEXP AAC/ICY session; all replay offline. M11-A adds offline `select` and `compare` commands for the KCRW traces without changing production playback. KEXP supplied pre-roll and title metadata, a feed airbreak, and real pause/resume observations, but only three named song markers—not a station timing distribution. See the [M10 execution handoff](../../../docs/menubar/milestones/milestone_10_handoff.md), [M11-A plan](../../../docs/menubar/milestones/milestone_11a.md), [KCRW results](../../../docs/menubar/experiments/2026-09-26_kcrw_hls_attended.md), and [KEXP results](../../../docs/menubar/experiments/2026-09-27_kexp_aac_attended.md). No production player behavior has changed.
 
 Exit codes: `0` success, `2` usage error (the message is followed by the usage text), `1` any other failure.
 
@@ -15,6 +15,7 @@ Exit codes: `0` success, `2` usage error (the message is followed by the usage t
 From the PocketRadio shell repository:
 
 ```bash
+swift test --package-path pocket-radio-menubar/Packages/StreamSession
 swift build --package-path pocket-radio-menubar/Tools/StreamLab
 swift test --package-path pocket-radio-menubar/Tools/StreamLab
 ```
@@ -22,6 +23,7 @@ swift test --package-path pocket-radio-menubar/Tools/StreamLab
 From this directory:
 
 ```bash
+swift test --package-path ../../Packages/StreamSession
 swift build
 swift test
 ```
@@ -101,6 +103,30 @@ not an audible song boundary. A cached entry can still arrive well before buffer
 that song; cache age alone does not limit playback-aligned title timing.
 
 Replay fails with a single line and a nonzero status when the trace is truncated, incomplete, out of order, or written for an unsupported schema.
+
+### Offline occurrence selection
+
+`select` causally replays one trace with a separate annotation sidecar. It defaults to the experimental `+160s` KCRW AAC/HLS feed-to-program-date offset:
+
+```bash
+swift run --package-path pocket-radio-menubar/Tools/StreamLab stream-lab select \
+  docs/menubar/experiments/traces/2026-09-26_kcrw_hls_attended_s1.jsonl \
+  --annotations docs/menubar/experiments/2026-09-26_kcrw_hls_attended_s1.annotations.json \
+  --offset 160
+```
+
+`compare` accepts two or more explicit `TRACE ANNOTATIONS` pairs and produces one deterministic report with the primary result, the predeclared `158s...163s` sensitivity table, leave-one-session-out median calibration, all annotations, and pause evidence:
+
+```bash
+swift run --package-path pocket-radio-menubar/Tools/StreamLab stream-lab compare \
+  TRACE_1 ANNOTATIONS_1 TRACE_2 ANNOTATIONS_2 --offset 160
+```
+
+Both commands read local files only. They never contact a stream, feed, account, or Supabase. Annotation session IDs and marker sequences must match the trace. The SHA-256 recorded in a sidecar is provenance displayed in the report; verify it separately with `shasum -a 256` before relying on or sharing results.
+
+Occurrence selection retains feed history independently from the candidate. It uses only feed rows received by that event sequence, advances from a paired player media/program clock, freezes through pauses, and reports unavailable alignment instead of silently substituting feed row zero or wall time. `select` does not change the schema-v1 observation-only `replay` output.
+
+These commands are development-set analysis. The retained sessions helped motivate `160s`, contain no lyric landmarks, and did not record the output route. Passing them does not validate lyric accuracy, a fresh route, a production default, KEXP, or another endpoint.
 
 ## Experiment protocol
 

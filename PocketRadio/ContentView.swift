@@ -27,6 +27,7 @@ struct ContentView: View {
     /// Explicitly-opened detail panel (via ⓘ). Persists until closed.
     @State private var detailItem: DetailItem? = nil
     @State private var showCastPicker = false
+    @State private var showStreamExperiment = false
 
     init(vm: PlayerViewModel) {
         self._vm = StateObject(wrappedValue: vm)
@@ -196,7 +197,7 @@ struct ContentView: View {
                         browsePlaceholder
                     } else if vm.selectedPill == .podcast {
                         podcastTabsSection
-                    } else if !vm.tracklist.isEmpty {
+                    } else if !vm.visibleTracklist.isEmpty {
                         tracklistView
                     } else if vm.isLoadingTracklist {
                         HStack {
@@ -233,6 +234,21 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Remote debug log")
+
+                #if DEBUG
+                Button(action: { showStreamExperiment.toggle() }) {
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.system(size: 14))
+                        .foregroundColor(vm.streamExperimentMode != .off
+                                         ? PocketCastsTheme.accent : PocketCastsTheme.primaryIcon02)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showStreamExperiment, arrowEdge: .top) {
+                    StreamExperimentView(vm: vm)
+                }
+                .help("KCRW AAC alignment experiment (debug only)")
+                #endif
 
                 Spacer()
 
@@ -508,7 +524,7 @@ struct ContentView: View {
             }
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(vm.tracklist) { entry in
+                    ForEach(vm.visibleTracklist) { entry in
                         tracklistRow(entry)
                     }
                 }
@@ -577,6 +593,11 @@ struct ContentView: View {
 
             Spacer()
 
+            if vm.streamExperimentMode == .applyCandidate && vm.isCurrentTracklistEntry(entry) {
+                Image(systemName: "waveform")
+                    .foregroundColor(PocketCastsTheme.accent)
+                    .accessibilityLabel("Selected occurrence")
+            }
             Button(action: { detailItem = .lyrics(entry) }) {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 13))
@@ -1096,9 +1117,7 @@ struct ContentView: View {
             case .station(let s):
                 stationDetail(s)
             case .lyrics(let entry):
-                let isCurrentSong = vm.tracklist.first.map {
-                    $0.title == entry.title && $0.artist == entry.artist
-                } ?? false
+                let isCurrentSong = vm.isCurrentTracklistEntry(entry)
                 LyricsDetailView(
                     vm: vm,
                     entry: entry,
@@ -1378,7 +1397,8 @@ struct LyricsDetailView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(result.lines.enumerated()), id: \.offset) { idx, line in
-                        let isCurrent = isCurrentSong && idx == currentLyricIndex
+                        let isCurrent = isCurrentSong && vm.hasSyncedLyrics
+                            && vm.lyricStatus == .found && idx == currentLyricIndex
                         Text(line.text.isEmpty ? " " : line.text)
                             .font(.system(size: 13, weight: isCurrent ? .bold : .regular))
                             .foregroundColor(isCurrent
@@ -1393,12 +1413,12 @@ struct LyricsDetailView: View {
                 .padding(.vertical, 8)
             }
             .onAppear {
-                if isCurrentSong {
+                if isCurrentSong && vm.hasSyncedLyrics && vm.lyricStatus == .found {
                     proxy.scrollTo(currentLyricIndex, anchor: .center)
                 }
             }
             .onChange(of: currentLyricIndex) { newIdx in
-                if isCurrentSong {
+                if isCurrentSong && vm.hasSyncedLyrics && vm.lyricStatus == .found {
                     withAnimation(.easeInOut(duration: 0.4)) {
                         proxy.scrollTo(newIdx, anchor: .center)
                     }

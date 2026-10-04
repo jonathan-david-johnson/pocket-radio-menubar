@@ -9,8 +9,10 @@ import XCTest
 
 final class KCRW_MenuBar_PlayerUITestsLaunchTests: XCTestCase {
 
+    // Running both appearances changes the user's system setting and can leave
+    // macOS in Dark mode. A launch smoke test only needs the current appearance.
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
+        false
     }
 
     override func setUpWithError() throws {

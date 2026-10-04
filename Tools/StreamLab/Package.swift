@@ -8,10 +8,19 @@ let package = Package(
         .library(name: "StreamDiagnostics", targets: ["StreamDiagnostics"]),
         .executable(name: "stream-lab", targets: ["StreamLab"]),
     ],
+    dependencies: [
+        .package(path: "../../Packages/StreamSession"),
+    ],
     targets: [
         .target(name: "StreamDiagnostics"),
-        .executableTarget(name: "StreamLab", dependencies: ["StreamDiagnostics"]),
+        .executableTarget(name: "StreamLab", dependencies: [
+            "StreamDiagnostics",
+            .product(name: "StreamSession", package: "StreamSession"),
+        ]),
         .testTarget(name: "StreamDiagnosticsTests", dependencies: ["StreamDiagnostics"]),
-        .testTarget(name: "StreamLabTests", dependencies: ["StreamLab"]),
+        .testTarget(name: "StreamLabTests", dependencies: [
+            "StreamLab",
+            .product(name: "StreamSession", package: "StreamSession"),
+        ]),
     ]
 )
