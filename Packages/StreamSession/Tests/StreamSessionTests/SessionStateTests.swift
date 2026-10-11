@@ -72,4 +72,29 @@ final class SessionStateTests: XCTestCase {
         XCTAssertEqual(whilePaused.occurrence.title, "A")
         XCTAssertEqual(whilePaused.songSeconds, atPause.songSeconds, accuracy: 0.000_001)
     }
+
+    func testUpdatingTheSelectionPolicyShiftsTheSongPositionAndKeepsHistoryAndClock() throws {
+        var state = SessionState(selectionPolicy: .init(feedToProgramOffset: 160,
+                                                        maxSelectedAge: 1200,
+                                                        maxFeedSilence: 1000))
+        _ = try state.receiveFeed(requestID: 1, requestedElapsedSeconds: 0,
+                                  receivedElapsedSeconds: 1, entries: [input("A", at: 0)])
+        let sample = MediaClockSample(generation: "item", elapsedSeconds: 10, mediaSeconds: 10,
+                                      programDate: origin.addingTimeInterval(200), isAdvancing: true)
+        guard case .selected(let before) = state.observePlayer(sample).selection else {
+            return XCTFail("Expected a selection")
+        }
+        XCTAssertEqual(before.songSeconds, 40, accuracy: 0.000_001)
+
+        state.updateSelectionPolicy(.init(feedToProgramOffset: 157,
+                                          maxSelectedAge: 1200,
+                                          maxFeedSilence: 1000))
+        let next = MediaClockSample(generation: "item", elapsedSeconds: 11, mediaSeconds: 11,
+                                    programDate: origin.addingTimeInterval(201), isAdvancing: true)
+        guard case .selected(let after) = state.observePlayer(next).selection else {
+            return XCTFail("The history and the clock must survive the policy change")
+        }
+        XCTAssertEqual(after.occurrence.title, "A")
+        XCTAssertEqual(after.songSeconds, 44, accuracy: 0.000_001, "an offset 3 s smaller puts the song 3 s further in")
+    }
 }

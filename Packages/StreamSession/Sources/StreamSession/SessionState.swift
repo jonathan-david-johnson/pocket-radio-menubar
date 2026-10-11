@@ -33,7 +33,7 @@ public struct FeedMutation: Equatable, Sendable {
 public struct SessionState: Sendable {
     public private(set) var history: OccurrenceHistory
     public private(set) var mediaClock: MediaClock
-    public let selector: OccurrenceSelector
+    public private(set) var selector: OccurrenceSelector
 
     public init(historyPolicy: OccurrenceHistoryPolicy = OccurrenceHistoryPolicy(),
                 selectionPolicy: OccurrenceSelectionPolicy = OccurrenceSelectionPolicy(),
@@ -41,6 +41,12 @@ public struct SessionState: Sendable {
         history = OccurrenceHistory(policy: historyPolicy)
         mediaClock = MediaClock(policy: clockPolicy)
         selector = OccurrenceSelector(policy: selectionPolicy)
+    }
+
+    /// Replaces the selection policy for later decisions, keeping the history and the clock. A debug
+    /// control uses it to change the feed-to-program offset while a session runs.
+    public mutating func updateSelectionPolicy(_ policy: OccurrenceSelectionPolicy) {
+        selector = OccurrenceSelector(policy: policy)
     }
 
     public mutating func receiveFeed(requestID: Int, requestedElapsedSeconds: Double,
